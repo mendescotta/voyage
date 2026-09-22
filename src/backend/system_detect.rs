@@ -1,4 +1,4 @@
-//! Port of `kron_core/system_utils.py`'s `SystemDetector`: live system
+//! `SystemDetector`: live system
 //! probing for disks, timezones, keymaps, locales, display manager, EFI
 //! and network state.
 

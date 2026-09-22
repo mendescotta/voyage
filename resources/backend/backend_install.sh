@@ -184,7 +184,7 @@ copy_rootfs() {
     rm -f "$TARGETDIR/etc/motd" "$TARGETDIR/etc/issue" "$TARGETDIR/usr/sbin/void-installer"
     # Drop the overlay's Install System shortcut from skel before
     # set_useraccount copies it into the real user's home.
-    rm -f "$TARGETDIR/etc/skel/Desktop/kron-installer-gtk4.desktop"
+    rm -f "$TARGETDIR/etc/skel/Desktop/voyage.desktop"
     # adduser.sh's live-session convenience rule grants the wheel group
     # every polkit action with no authentication at all; strip it (and
     # the matching sudoers drop-in) so the installed system isn't stuck
@@ -203,7 +203,19 @@ copy_rootfs() {
     if [ -f "$TARGETDIR/etc/default/live.conf" ]; then
         LIVE_USERNAME="$(. "$TARGETDIR/etc/default/live.conf"; echo "$USERNAME")"
     fi
-    [ -n "$LIVE_USERNAME" ] && chroot "$TARGETDIR" userdel -r "$LIVE_USERNAME" >/dev/null 2>&1
+    if [ -n "$LIVE_USERNAME" ]; then
+        chroot "$TARGETDIR" userdel -r "$LIVE_USERNAME" >/dev/null 2>&1
+        # The live overlay's agetty-tty1 override autologs in as the live
+        # user (-a $LIVE_USERNAME); once that account is gone, leaving the
+        # reference in place can keep tty1 from spawning a login prompt.
+        if [ -f "$TARGETDIR/etc/sv/agetty-tty1/conf" ]; then
+            sed -i "s/-a $LIVE_USERNAME //" "$TARGETDIR/etc/sv/agetty-tty1/conf"
+        fi
+    fi
+
+    # Populate root's home with the same skel dotfiles new users get
+    # (.bashrc, .inputrc, .xinitrc, ...); nothing does this otherwise.
+    cp "$TARGETDIR"/etc/skel/.[!.]* "$TARGETDIR/root/" 2>/dev/null
 
     # Make sure the installed system doesn't have 'pam_rootok' enabled
     PAM_FILES="$TARGETDIR/etc/pam.d/su $TARGETDIR/etc/pam.d/login"
@@ -320,22 +332,22 @@ EOF
 
     # Wayland - variables for compositors based on libxkbcommon/wlroots
     install -d "$TARGETDIR/etc/profile.d" "$TARGETDIR/etc/environment.d"
-    cat > "$TARGETDIR/etc/profile.d/kron-keyboard.sh" <<EOF
+    cat > "$TARGETDIR/etc/profile.d/voyage-keyboard.sh" <<EOF
 # Keyboard defaults for Wayland compositors using libxkbcommon/wlroots.
 export XKB_DEFAULT_MODEL="pc105"
 export XKB_DEFAULT_LAYOUT="$XKB_LAYOUT"
 export XKB_DEFAULT_VARIANT="$XKB_VARIANT"
 export XKB_DEFAULT_OPTIONS=""
 EOF
-    chmod 0644 "$TARGETDIR/etc/profile.d/kron-keyboard.sh"
+    chmod 0644 "$TARGETDIR/etc/profile.d/voyage-keyboard.sh"
 
-    cat > "$TARGETDIR/etc/environment.d/90-kron-keyboard.conf" <<EOF
+    cat > "$TARGETDIR/etc/environment.d/90-voyage-keyboard.conf" <<EOF
 XKB_DEFAULT_MODEL=pc105
 XKB_DEFAULT_LAYOUT=$XKB_LAYOUT
 XKB_DEFAULT_VARIANT=$XKB_VARIANT
 XKB_DEFAULT_OPTIONS=
 EOF
-    chmod 0644 "$TARGETDIR/etc/environment.d/90-kron-keyboard.conf"
+    chmod 0644 "$TARGETDIR/etc/environment.d/90-voyage-keyboard.conf"
 
     # Display managers may start the compositor without going through profile.d
     touch "$TARGETDIR/etc/environment"
@@ -355,7 +367,7 @@ EOF
 
     # GNOME/Mutter keeps the keyboard in GSettings and doesn't use Xorg or the variables
     install -d "$TARGETDIR/etc/xdg/autostart" "$TARGETDIR/usr/libexec"
-    cat > "$TARGETDIR/usr/libexec/kron-wayland-keyboard" <<EOF
+    cat > "$TARGETDIR/usr/libexec/voyage-wayland-keyboard" <<EOF
 #!/bin/sh
 # Apply the installer-selected keyboard layout in GNOME Wayland sessions.
 command -v gsettings >/dev/null 2>&1 || exit 0
@@ -366,19 +378,19 @@ else
     gsettings set org.gnome.desktop.input-sources sources "[('xkb', '${XKB_LAYOUT}')]" || exit 0
 fi
 EOF
-    chmod 0755 "$TARGETDIR/usr/libexec/kron-wayland-keyboard"
+    chmod 0755 "$TARGETDIR/usr/libexec/voyage-wayland-keyboard"
 
-    cat > "$TARGETDIR/etc/xdg/autostart/kron-wayland-keyboard.desktop" <<EOF
+    cat > "$TARGETDIR/etc/xdg/autostart/voyage-wayland-keyboard.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Kron keyboard layout
+Name=Voyage keyboard layout
 Comment=Apply the selected keyboard layout in GNOME Wayland
-Exec=/usr/libexec/kron-wayland-keyboard
+Exec=/usr/libexec/voyage-wayland-keyboard
 OnlyShowIn=GNOME;
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
 EOF
-    chmod 0644 "$TARGETDIR/etc/xdg/autostart/kron-wayland-keyboard.desktop"
+    chmod 0644 "$TARGETDIR/etc/xdg/autostart/voyage-wayland-keyboard.desktop"
 
     # KDE Plasma - kxkbrc in skel for new users
     install -d "$TARGETDIR/etc/skel/.config"
@@ -450,7 +462,7 @@ set_autologin() {
     case "$manager" in
         sddm)
             install -d "$TARGETDIR/etc/sddm.conf.d"
-            cat > "$TARGETDIR/etc/sddm.conf.d/10-kron-autologin.conf" <<EOF
+            cat > "$TARGETDIR/etc/sddm.conf.d/10-voyage-autologin.conf" <<EOF
 [Autologin]
 User=$userlogin
 Session=default.desktop
@@ -459,7 +471,7 @@ EOF
             ;;
         lightdm)
             install -d "$TARGETDIR/etc/lightdm/lightdm.conf.d"
-            cat > "$TARGETDIR/etc/lightdm/lightdm.conf.d/50-kron-autologin.conf" <<EOF
+            cat > "$TARGETDIR/etc/lightdm/lightdm.conf.d/50-voyage-autologin.conf" <<EOF
 [Seat:*]
 autologin-user=$userlogin
 autologin-user-timeout=0
@@ -512,7 +524,7 @@ set_mirror() {
     local MIRROR_URL=${MIRRORS[$MIRROR_KEY]}
 
     # Only configure a mirror if it's not the local ISO
-    if [[ "$MIRROR_KEY" != "Default" ]] && [[ -n "$MIRROR_URL" ]]; then
+    if [[ "$MIRROR_KEY" != "Local" ]] && [[ -n "$MIRROR_URL" ]]; then
         echo "Configuring mirror..."
         log_ui "MIRROR"        
         
@@ -663,7 +675,7 @@ install_limine() {
 
     # Recent Limine dropped ext2/3/4 (and never supported btrfs) for reading
     # its own config/kernel/initramfs, so those must live on a FAT32
-    # partition. Kron only has one to offer: the EFI System Partition -- so
+    # partition. Voyage only has one to offer: the EFI System Partition -- so
     # Limine is EFI-only here, with everything placed at the ESP's root.
     [ -n "$EFI_SYSTEM" ] || die "Limine requires an EFI system partition"
 
@@ -734,7 +746,7 @@ set_bootloader() {
 
     if [ "$dev" = "none" ] || [ -z "$dev" ]; then return; fi
 
-    # grub is a hard `depends` of the kron-installer-gtk4 package itself
+    # grub is a hard `depends` of the voyage package itself
     # (needed regardless of which bootloader the user ends up picking),
     # so it's always present on the target here. Remove whichever
     # bootloader packages weren't chosen so their kernel hooks (grub.cfg
@@ -777,7 +789,7 @@ log_ui "REGIONAL_CONFIG"
 mount_filesystems
 install -Dm644 "$TARGET_FSTAB" "$TARGETDIR/etc/fstab"
 echo "tmpfs /tmp tmpfs defaults,nosuid,nodev 0 0" >> "$TARGETDIR/etc/fstab"
-touch "$TARGETDIR/etc/kron-installer-release"
+touch "$TARGETDIR/etc/voyage-installer-release"
 
 set_keymap
 set_locale
@@ -787,6 +799,12 @@ set_hostname
 # Mirrors and proprietary drivers
 set_mirror
 install_extra_software
+
+# Rebuild the initramfs for the target now that any extra drivers
+# (nvidia/intel) are in place -- the live ISO's initramfs was built for
+# the live environment's hardware, not necessarily the install target's.
+echo "Rebuilding initramfs for the target system..."
+chroot "$TARGETDIR" dracut --no-hostonly --add-drivers "ahci" --force || die "Error rebuilding initramfs"
 
 log_ui "USER_CONFIG"
 set_rootpassword
@@ -800,7 +818,7 @@ set_bootloader
 
 # Step 5: Finish
 echo "Removing the installer and orphaned packages/cache..."
-chroot "$TARGETDIR" xbps-remove -ROoy kron-installer-gtk4
+chroot "$TARGETDIR" xbps-remove -ROoy voyage xmirror dialog xtools-minimal
 
 log_ui "FINISH"
 sync

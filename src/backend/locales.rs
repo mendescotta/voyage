@@ -1,4 +1,4 @@
-//! Port of `kron_core/utils_locales.py`: readable display names for ISO-639
+//! Readable display names for ISO-639
 //! language codes and kbd keymap codes.
 
 /// Returns a readable language name from the ISO-639 code, or the code

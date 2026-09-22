@@ -1,4 +1,4 @@
-//! Port of `kron_core/install_runner.py`'s `InstallRunner`: writes the conf
+//! `InstallRunner`: writes the conf
 //! file, spawns `pkexec bash backend_install.sh`, and turns its `>>> TOKEN`
 //! stdout lines into progress/status/log events — or replays a scripted
 //! demo sequence when `demo` is set.

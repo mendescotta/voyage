@@ -1,4 +1,4 @@
-//! Port of `kron_core/config_schema.py`: field validation and assembly of
+//! Field validation and assembly of
 //! the install configuration handed to `install_runner`.
 //!
 //! Kept free of GTK types so it's plain, unit-testable Rust — the UI layer

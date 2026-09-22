@@ -1,9 +1,8 @@
 //! Resolves the vendored backend script/resource directory at runtime.
 //!
-//! Mirrors `kron_core/paths.py`'s approach for the Python app: locate the
-//! backend directory relative to the running executable so the app works
-//! both from a `cargo run` dev build and from an installed location, with
-//! an environment variable escape hatch for packaging.
+//! Locates the backend directory relative to the running executable so the
+//! app works both from a `cargo run` dev build and from an installed
+//! location, with an environment variable escape hatch for packaging.
 
 use std::env;
 use std::path::{Path, PathBuf};
