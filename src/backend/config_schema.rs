@@ -268,10 +268,7 @@ pub fn build_config(
         return Err(errors);
     }
 
-    let partitions = match build_partitions(raw_parts, filesystem, want_efi) {
-        Ok(p) => p,
-        Err(e) => return Err(e),
-    };
+    let partitions = build_partitions(raw_parts, filesystem, want_efi)?;
 
     // Root is guaranteed present here: build_partitions only succeeds when
     // raw_parts.root is Some.

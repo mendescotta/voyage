@@ -127,6 +127,10 @@ impl InstallRunner {
         }
     }
 
+    /// Not wired to any UI control yet — `install_runner.py` exposes the
+    /// same method unused by `window.py` today; kept for parity and future
+    /// cancel-button support.
+    #[allow(dead_code)]
     pub fn request_interruption(&self) {
         self.interrupted.store(true, Ordering::SeqCst);
     }

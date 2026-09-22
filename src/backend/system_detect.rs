@@ -13,6 +13,7 @@ use super::locales;
 #[derive(Debug, Clone)]
 pub struct DiskPartition {
     pub name: String,
+    pub size: String,
     pub fstype: String,
 }
 
@@ -236,6 +237,7 @@ pub fn detect_disks() -> Vec<Disk> {
                     .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("part"))
                     .map(|c| DiskPartition {
                         name: format!("/dev/{}", c.get("name").and_then(|v| v.as_str()).unwrap_or("")),
+                        size: c.get("size").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         fstype: c
                             .get("fstype")
                             .and_then(|v| v.as_str())
@@ -272,30 +274,19 @@ pub fn parse_size_to_bytes(size_str: &str) -> u64 {
     size_str.parse::<f64>().map(|v| v as u64).unwrap_or(0)
 }
 
-/// `detect_disks()`'s children only carry name/fstype (enough for disk
-/// grouping), so partition sizes come from a second, partition-scoped
-/// `lsblk` call here.
+/// Flattens every disk's partitions into a single list, port of
+/// `get_partitions_detailed` in `system_utils.py`.
 pub fn get_partitions_detailed() -> Vec<PartitionDetail> {
     let mut partitions = Vec::new();
-    let output = Command::new("lsblk")
-        .args(["-rno", "NAME,SIZE,TYPE,FSTYPE"])
-        .output();
-    let Ok(output) = output else { return partitions };
-    let text = String::from_utf8_lossy(&output.stdout);
-    for line in text.lines() {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() < 3 || fields[2] != "part" {
-            continue;
+    for disk in detect_disks() {
+        for part in disk.children {
+            partitions.push(PartitionDetail {
+                name: part.name.clone(),
+                display: format!("{} ({})", part.name, part.size),
+                size_bytes: parse_size_to_bytes(&part.size),
+                fstype: part.fstype,
+            });
         }
-        let name = format!("/dev/{}", fields[0]);
-        let size_str = fields[1];
-        let fstype = fields.get(3).unwrap_or(&"").to_lowercase();
-        partitions.push(PartitionDetail {
-            name: name.clone(),
-            display: format!("{name} ({size_str})"),
-            size_bytes: parse_size_to_bytes(size_str),
-            fstype,
-        });
     }
     partitions
 }
@@ -341,7 +332,7 @@ pub fn detect_keymaps() -> Vec<String> {
         .into_iter()
         .filter(|k| locales::has_known_keymap_name(k))
         .collect();
-    filtered.sort_by(|a, b| locales::keymap_name(a).cmp(&locales::keymap_name(b)));
+    filtered.sort_by_key(|a| locales::keymap_name(a));
     filtered
 }
 

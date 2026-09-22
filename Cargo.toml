@@ -14,8 +14,9 @@ gtk = { package = "gtk4", version = "0.9", features = ["v4_12"] }
 gio = "0.20"
 glib = "0.20"
 gdk = { package = "gdk4", version = "0.9", features = ["v4_12"] }
-adw = { package = "libadwaita", version = "0.7", features = ["v1_4"] }
+adw = { package = "libadwaita", version = "0.7", features = ["v1_6"] }
 ureq = { version = "2", default-features = false, features = ["tls"] }
+async-channel = "2"
 
 # Deviation from caerus's optional-libadwaita pattern: the wizard UI ported
 # from ui/pages/*.py is built entirely on Adwaita widgets (PreferencesGroup,
