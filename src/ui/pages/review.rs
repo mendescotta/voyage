@@ -17,14 +17,23 @@ pub fn review_rows(config: &InstallConfig) -> Vec<(String, String)> {
         ("User account".to_string(), format!("{} ({})", config.username, config.userlogin)),
         ("User password".to_string(), password_state(&config.userpassword)),
         ("Root password".to_string(), password_state(&config.rootpassword)),
+        ("Display manager".to_string(), display_manager_label(&config.display_manager)),
+        ("Auto login".to_string(), yes_no(config.autologin)),
         ("Mirror".to_string(), config.mirror.clone()),
         ("System updates".to_string(), yes_no(config.update)),
+        ("Nonfree repository".to_string(), yes_no(config.nonfree)),
+        ("NVIDIA driver".to_string(), yes_no(config.nvidia)),
+        ("Intel driver".to_string(), yes_no(config.intel)),
         ("Disk layout".to_string(), partitions_summary(&config.partitions)),
         ("Swap".to_string(), swap_summary(config)),
         ("Filesystem".to_string(), root_filesystem(&config.partitions)),
         ("Btrfs layout".to_string(), btrfs_summary(config)),
         ("Bootloader".to_string(), format!("{} on {}", config.bootloader_type, config.bootloader_disk)),
     ]
+}
+
+fn display_manager_label(display_manager: &str) -> String {
+    if display_manager.is_empty() { "None".to_string() } else { display_manager.to_string() }
 }
 
 fn password_state(pwd: &str) -> String {
@@ -174,6 +183,14 @@ mod tests {
         let rows = review_rows(&sample_config());
         let btrfs = rows.iter().find(|(k, _)| k == "Btrfs layout").unwrap();
         assert!(btrfs.1.contains("snapshots"));
+    }
+
+    #[test]
+    fn review_rows_includes_every_collected_choice() {
+        let rows = review_rows(&sample_config());
+        for key in ["Display manager", "Auto login", "Nonfree repository", "NVIDIA driver", "Intel driver"] {
+            assert!(rows.iter().any(|(k, _)| k == key), "missing row: {key}");
+        }
     }
 
     #[test]
