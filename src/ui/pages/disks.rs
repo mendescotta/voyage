@@ -36,6 +36,7 @@ pub struct DisksPage {
     disk_row: adw::ComboRow,
     root_row: adw::ComboRow,
     efi_row: adw::ComboRow,
+    swap_strategy_row: adw::ComboRow,
     swap_row: adw::ComboRow,
     home_row: adw::ComboRow,
     filesys_row: adw::ComboRow,
@@ -74,14 +75,26 @@ impl DisksPage {
         let manual_group = adw::PreferencesGroup::builder().title("Manual assignment").build();
         let root_row = adw::ComboRow::builder().title("Root (/)").build();
         let efi_row = adw::ComboRow::builder().title("EFI (/boot/efi)").build();
-        let swap_row = adw::ComboRow::builder().title("Swap").build();
+        let swap_strategy_row = adw::ComboRow::builder()
+            .title("Swap")
+            .model(&string_list(&["None".to_string(), "Partition".to_string(), "Swap file".to_string()]))
+            .build();
+        let swap_row = adw::ComboRow::builder().title("Swap partition").visible(false).build();
         let home_row = adw::ComboRow::builder().title("Home (/home)").build();
         manual_group.add(&root_row);
         if is_efi {
             manual_group.add(&efi_row);
         }
+        manual_group.add(&swap_strategy_row);
         manual_group.add(&swap_row);
         manual_group.add(&home_row);
+
+        {
+            let swap_row = swap_row.clone();
+            swap_strategy_row.connect_selected_notify(move |row| {
+                swap_row.set_visible(row.selected() == 1);
+            });
+        }
 
         let gparted_button = gtk::Button::builder().label("Open GParted").build();
         let gparted_row = adw::ActionRow::builder().title("Need finer control?").build();
@@ -113,6 +126,7 @@ impl DisksPage {
             disk_row,
             root_row,
             efi_row,
+            swap_strategy_row,
             swap_row,
             home_row,
             filesys_row,
@@ -277,7 +291,11 @@ impl DisksPage {
                 filesystem,
                 want_efi: self.is_efi,
                 bootloader_type,
-                swap_strategy: SwapStrategy::None,
+                swap_strategy: match self.swap_strategy_row.selected() {
+                    1 => SwapStrategy::Partition,
+                    2 => SwapStrategy::Swapfile,
+                    _ => SwapStrategy::None,
+                },
                 btrfs_flat: false,
                 btrfs_snapshots: false,
             },
