@@ -77,6 +77,23 @@ run_step() {
     "$@" || die "$desc failed"
 }
 
+# Retries with -t auto (signature probing) if the recorded filesystem
+# type no longer matches reality. Not used for swap (swapon takes no -t)
+# or btrfs subvolume mounts (a plain fallback there would silently mount
+# the wrong subvolume).
+mount_with_fallback() {
+    local dev="$1" target="$2" fstype="$3"
+    echo "-> Mounting $dev as $fstype on $target"
+    if mount -t "$fstype" "$dev" "$target" 2>/dev/null; then
+        return 0
+    fi
+    echo "-> $dev did not mount as $fstype, retrying with auto-detection"
+    if mount -t auto "$dev" "$target" 2>/dev/null; then
+        return 0
+    fi
+    die "Error mounting $dev on $target (tried $fstype and auto-detection)"
+}
+
 # Extra kernel cmdline dynamod needs, appended to whichever bootloader's
 # own cmdline construction is in use. rdinit= bypasses the initramfs's own
 # /init entirely and execs this path from the initramfs image as PID 1 --
@@ -187,7 +204,7 @@ create_filesystems() {
                 continue
             fi
 
-            mount -t "$fstype" "$dev" "$TARGETDIR" || die "Error mounting root on $dev"
+            mount_with_fallback "$dev" "$TARGETDIR" "$fstype"
 
             uuid=$(blkid -o value -s UUID "$dev")
             if [ "$fstype" = "f2fs" ] || [ "$fstype" = "btrfs" ] || [ "$fstype" = "xfs" ]; then
@@ -207,7 +224,7 @@ create_filesystems() {
         [ "$mntpt" = "/" ] || [ "$fstype" = "swap" ] && continue
         
         mkdir -p "${TARGETDIR}${mntpt}"
-        mount -t "$fstype" "$dev" "${TARGETDIR}${mntpt}" || die "Error mounting $mntpt on $dev"
+        mount_with_fallback "$dev" "${TARGETDIR}${mntpt}" "$fstype"
         
         uuid=$(blkid -o value -s UUID "$dev")
         if [ "$fstype" = "f2fs" ] || [ "$fstype" = "btrfs" ] || [ "$fstype" = "xfs" ]; then
