@@ -955,6 +955,9 @@ chroot "$TARGETDIR" xbps-remove -ROoy voyage xmirror dialog xtools-minimal
 
 log_ui "FINISH"
 sync
+install -d "$TARGETDIR/var/log"
+cp "$LOG" "$TARGETDIR/var/log/voyage-install.log" 2>/dev/null || \
+    echo "WARNING: could not copy install log into the target system" >&2
 umount_filesystems
 rm -f "$TARGET_FSTAB"
 
