@@ -89,6 +89,8 @@ pub fn generate_conf_file(config: &InstallConfig, conf_file: &str) -> std::io::R
         ("BOOTLOADER", config.bootloader_disk.clone()),
         ("BOOTLOADER_TYPE", config.bootloader_type.clone()),
         ("SWAPTYPE", config.swap_strategy.clone()),
+        ("BTRFS_FLAT", if config.btrfs_flat { "1" } else { "0" }.to_string()),
+        ("BTRFS_SNAPSHOTS", if config.btrfs_snapshots { "1" } else { "0" }.to_string()),
     ];
     for (key, value) in lines {
         writeln!(file, "{key} {}", escape_conf_value(&value))?;
@@ -314,6 +316,8 @@ mod tests {
         assert!(content.contains("BOOTLOADER /dev/sda\n"));
         assert!(content.contains("BOOTLOADER_TYPE grub\n"));
         assert!(content.contains("SWAPTYPE swapfile\n"));
+        assert!(content.contains("BTRFS_FLAT 0\n"));
+        assert!(content.contains("BTRFS_SNAPSHOTS 0\n"));
     }
 
     #[test]
