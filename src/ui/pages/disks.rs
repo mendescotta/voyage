@@ -71,11 +71,16 @@ impl DisksPage {
             .title("Layout")
             .model(&string_list(&["Basic".to_string(), "Basic + swap".to_string()]))
             .build();
+        let shred_row = adw::SwitchRow::builder()
+            .title("Securely erase disk first")
+            .subtitle("Overwrites the disk with zeros before partitioning. Adds time proportional to disk size.")
+            .build();
         let auto_button = gtk::Button::builder().label("Partition automatically").css_classes(["destructive-action"]).build();
         let auto_row = adw::ActionRow::builder().title("Erase disk and create partitions").build();
         auto_row.add_suffix(&auto_button);
         auto_group.add(&disk_row);
         auto_group.add(&layout_row);
+        auto_group.add(&shred_row);
         auto_group.add(&auto_row);
         widget.append(&auto_group);
 
@@ -181,6 +186,7 @@ impl DisksPage {
         {
             let disk_row = page.disk_row.clone();
             let layout_row = layout_row.clone();
+            let shred_row = shred_row.clone();
             let state = page.state.clone();
             let (root_row_w, efi_row_w, swap_row_w, home_row_w) =
                 (page.root_row.clone(), page.efi_row.clone(), page.swap_row.clone(), page.home_row.clone());
@@ -191,14 +197,23 @@ impl DisksPage {
                 }
                 let disk = state_ref.disks[disk_row.selected() as usize].name.clone();
                 let layout = if layout_row.selected() == 1 { "with-swap" } else { "basic" };
+                let shred_flag = if shred_row.is_active() { "--shred" } else { "" };
                 drop(state_ref);
 
-                let dialog = adw::AlertDialog::builder()
-                    .heading("Warning: automatic partitioning")
-                    .body(format!(
+                let body = if shred_row.is_active() {
+                    format!(
+                        "Disk {disk} will be securely erased and then formatted; all its data will be lost. \
+                         This action cannot be undone and may take a while depending on disk size."
+                    )
+                } else {
+                    format!(
                         "Disk {disk} will be formatted and all its data will be lost. \
                          This action cannot be undone."
-                    ))
+                    )
+                };
+                let dialog = adw::AlertDialog::builder()
+                    .heading("Warning: automatic partitioning")
+                    .body(body)
                     .build();
                 dialog.add_response("cancel", "Cancel");
                 dialog.add_response("continue", "Continue");
@@ -213,7 +228,7 @@ impl DisksPage {
                     if response != "continue" {
                         return;
                     }
-                    match Command::new("pkexec").arg("bash").arg(auto_partition_script()).arg(&disk).arg(layout).status() {
+                    match Command::new("pkexec").arg("bash").arg(auto_partition_script()).arg(&disk).arg(layout).arg(shred_flag).status() {
                         Ok(status) if status.success() => {
                             let mut state_mut = state.borrow_mut();
                             state_mut.partitions = system_detect::get_partitions_detailed();
