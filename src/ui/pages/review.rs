@@ -2,6 +2,8 @@
 //! the second-stage destructive confirmation (the disks page's
 //! auto-partition warning dialog is the first stage for that path).
 
+use adw::prelude::*;
+
 use crate::backend::config_schema::{InstallConfig, Partition};
 
 pub const TITLE: &str = "Review";
@@ -62,6 +64,54 @@ fn btrfs_summary(config: &InstallConfig) -> String {
         format!("{layout} + snapshots")
     } else {
         layout.to_string()
+    }
+}
+
+pub struct ReviewPage {
+    pub widget: gtk::Box,
+    group: adw::PreferencesGroup,
+    pub install_button: gtk::Button,
+}
+
+impl ReviewPage {
+    pub fn new() -> Self {
+        let widget = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(18)
+            .margin_top(24)
+            .margin_start(24)
+            .margin_end(24)
+            .build();
+
+        let warning = gtk::Label::builder()
+            .label("Review your choices below. Installing will erase the selected partitions and cannot be undone.")
+            .css_classes(["dim-label"])
+            .wrap(true)
+            .halign(gtk::Align::Start)
+            .build();
+        widget.append(&warning);
+
+        let group = adw::PreferencesGroup::builder().title("Summary").build();
+        widget.append(&group);
+
+        let install_button = gtk::Button::builder()
+            .label("Install Now")
+            .halign(gtk::Align::End)
+            .css_classes(["destructive-action"])
+            .build();
+        widget.append(&install_button);
+
+        Self { widget, group, install_button }
+    }
+
+    pub fn set_config(&self, config: &InstallConfig) {
+        while let Some(child) = self.group.first_child() {
+            self.group.remove(&child);
+        }
+        for (label, value) in review_rows(config) {
+            let row = adw::ActionRow::builder().title(label).subtitle(value).build();
+            self.group.add(&row);
+        }
     }
 }
 
