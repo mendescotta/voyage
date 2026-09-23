@@ -243,6 +243,44 @@ pub fn build_partitions(
     }
 }
 
+/// Consolidates every static and disk-dependent rule about which
+/// bootloader can be installed given the chosen EFI/BIOS mode and target
+/// disk. Not a full filesystem-compatibility matrix: Voyage's
+/// limine/refind install functions stage the kernel/initramfs on the EFI
+/// System Partition and never read the root filesystem, so there is no
+/// bootloader/root-filesystem coupling to encode here.
+fn validate_bootloader_choice(disk: &DiskChoices) -> Result<(), FieldError> {
+    if matches!(disk.bootloader_type.as_str(), "limine" | "refind") && !disk.want_efi {
+        let name = if disk.bootloader_type == "limine" { "Limine" } else { "rEFInd" };
+        return Err((
+            "bootloader".to_string(),
+            format!(
+                "{name} requires an EFI system partition; this computer booted in \
+                 BIOS mode. Choose GRUB instead."
+            ),
+        ));
+    }
+
+    if disk.bootloader_type == "grub" && !disk.want_efi {
+        if let Some(root_dev) = &disk.raw_parts.root {
+            let disk_dev = bootloader_disk(root_dev);
+            if is_gpt_without_bios_boot(&disk_dev) {
+                return Err((
+                    "disk".to_string(),
+                    format!(
+                        "Disk {disk_dev} uses a GPT partition table, but the computer booted in \
+                         BIOS mode (not UEFI). GRUB needs a small, unformatted \u{ab}BIOS Boot\u{bb} \
+                         partition (1 MiB) on that disk to be able to install itself. Use automatic \
+                         partitioning, or create that partition manually with GParted before continuing."
+                    ),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn build_config(
     fields: &InstallFields,
     disk: &DiskChoices,
@@ -311,27 +349,8 @@ pub fn build_config(
     let root_dev = disk.raw_parts.root.as_ref().unwrap();
     let disk_dev = bootloader_disk(root_dev);
 
-    if matches!(disk.bootloader_type.as_str(), "limine" | "refind") && !disk.want_efi {
-        let name = if disk.bootloader_type == "limine" { "Limine" } else { "rEFInd" };
-        return Err(vec![(
-            "bootloader".to_string(),
-            format!(
-                "{name} requires an EFI system partition; this computer booted in \
-                 BIOS mode. Choose GRUB instead."
-            ),
-        )]);
-    }
-
-    if disk.bootloader_type == "grub" && !disk.want_efi && is_gpt_without_bios_boot(&disk_dev) {
-        return Err(vec![(
-            "disk".to_string(),
-            format!(
-                "Disk {disk_dev} uses a GPT partition table, but the computer booted in \
-                 BIOS mode (not UEFI). GRUB needs a small, unformatted \u{ab}BIOS Boot\u{bb} \
-                 partition (1 MiB) on that disk to be able to install itself. Use automatic \
-                 partitioning, or create that partition manually with GParted before continuing."
-            ),
-        )]);
+    if let Err(e) = validate_bootloader_choice(disk) {
+        return Err(vec![e]);
     }
 
     let mirror_key = if fields.mirror.is_empty() { "Local" } else { fields.mirror.as_str() };
@@ -556,6 +575,31 @@ mod tests {
         disk.btrfs_snapshots = true;
         let cfg = build_config(&fields, &disk, "").unwrap();
         assert!(!cfg.btrfs_snapshots, "flat layout has no subvolume boundary for @snapshots");
+    }
+
+    #[test]
+    fn validate_bootloader_choice_refind_requires_efi() {
+        let disk = DiskChoices {
+            raw_parts: RawPartitions { root: Some("/dev/sda1".to_string()), ..Default::default() },
+            filesystem: "ext4".to_string(),
+            want_efi: false,
+            bootloader_type: "refind".to_string(),
+            ..Default::default()
+        };
+        let err = validate_bootloader_choice(&disk).unwrap_err();
+        assert_eq!(err.0, "bootloader");
+    }
+
+    #[test]
+    fn validate_bootloader_choice_grub_efi_never_needs_bios_boot_partition() {
+        let disk = DiskChoices {
+            raw_parts: RawPartitions { root: Some("/dev/sda2".to_string()), ..Default::default() },
+            filesystem: "ext4".to_string(),
+            want_efi: true,
+            bootloader_type: "grub".to_string(),
+            ..Default::default()
+        };
+        assert!(validate_bootloader_choice(&disk).is_ok());
     }
 
     #[test]
