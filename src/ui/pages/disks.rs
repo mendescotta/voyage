@@ -9,7 +9,7 @@ use adw::prelude::*;
 
 use crate::backend::config_schema::{DiskChoices, RawPartitions, SwapStrategy};
 use crate::backend::paths::auto_partition_script;
-use crate::backend::system_detect::{self, Disk, PartitionDetail};
+use crate::backend::system_detect::{self, check_disk_health, Disk, HealthStatus, PartitionDetail};
 use crate::ui::SysData;
 
 pub const TITLE: &str = "Disks";
@@ -78,7 +78,9 @@ impl DisksPage {
         let auto_button = gtk::Button::builder().label("Partition automatically").css_classes(["destructive-action"]).build();
         let auto_row = adw::ActionRow::builder().title("Erase disk and create partitions").build();
         auto_row.add_suffix(&auto_button);
+        let health_label = gtk::Label::builder().css_classes(["dim-label", "caption"]).halign(gtk::Align::Start).build();
         auto_group.add(&disk_row);
+        auto_group.add(&adw::ActionRow::builder().child(&health_label).build());
         auto_group.add(&layout_row);
         auto_group.add(&shred_row);
         auto_group.add(&auto_row);
@@ -182,6 +184,28 @@ impl DisksPage {
             state,
         };
         page.reload_partitions();
+
+        {
+            let disk_row = page.disk_row.clone();
+            let disks = page.state.borrow().disks.clone();
+            let health_label = health_label.clone();
+            let update_health = move |index: usize| {
+                let Some(disk) = disks.get(index) else { return };
+                let health = check_disk_health(&disk.name);
+                let fmt = |status: HealthStatus, note: &str| match status {
+                    HealthStatus::Ok => format!("OK ({note})"),
+                    HealthStatus::Warn => format!("Warning ({note})"),
+                    HealthStatus::Unknown => format!("Unknown ({note})"),
+                };
+                health_label.set_text(&format!(
+                    "Structure: {} \u{b7} Hardware: {}",
+                    fmt(health.structure, &health.structure_note),
+                    fmt(health.hardware, &health.hardware_note),
+                ));
+            };
+            update_health(disk_row.selected() as usize);
+            disk_row.connect_selected_notify(move |row| update_health(row.selected() as usize));
+        }
 
         {
             let disk_row = page.disk_row.clone();
