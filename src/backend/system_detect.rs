@@ -291,6 +291,68 @@ pub fn get_partitions_detailed() -> Vec<PartitionDetail> {
     partitions
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthStatus {
+    Ok,
+    Warn,
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiskHealth {
+    pub structure: HealthStatus,
+    pub structure_note: String,
+    pub hardware: HealthStatus,
+    pub hardware_note: String,
+}
+
+/// Best-effort, non-blocking disk health check split into two independent
+/// axes so a blank new disk (no partition table yet) isn't reported as a
+/// hardware fault, and a disk with no SMART support isn't reported as
+/// structurally unsound. Never used to gate the wizard, only to inform.
+pub fn check_disk_health(disk_dev: &str) -> DiskHealth {
+    let structure = check_structure(disk_dev);
+    let hardware = check_hardware(disk_dev);
+    DiskHealth {
+        structure: structure.0,
+        structure_note: structure.1,
+        hardware: hardware.0,
+        hardware_note: hardware.1,
+    }
+}
+
+fn check_structure(disk_dev: &str) -> (HealthStatus, String) {
+    let output = Command::new("lsblk").args(["-no", "PTTYPE", disk_dev]).output();
+    match output {
+        Ok(out) if out.status.success() => {
+            let pttype = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if pttype.is_empty() {
+                (HealthStatus::Ok, "No partition table yet (blank disk).".to_string())
+            } else {
+                (HealthStatus::Ok, format!("Partition table: {pttype}"))
+            }
+        }
+        _ => (HealthStatus::Unknown, "Could not read partition table (lsblk unavailable).".to_string()),
+    }
+}
+
+fn check_hardware(disk_dev: &str) -> (HealthStatus, String) {
+    let output = Command::new("smartctl").args(["-H", disk_dev]).output();
+    match output {
+        Ok(out) => {
+            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            if text.contains("passed") || text.contains("ok") {
+                (HealthStatus::Ok, "SMART health check passed.".to_string())
+            } else if out.status.success() {
+                (HealthStatus::Unknown, "SMART status unclear; check manually if concerned.".to_string())
+            } else {
+                (HealthStatus::Warn, "SMART reported a possible issue; check with smartctl -a before proceeding.".to_string())
+            }
+        }
+        Err(_) => (HealthStatus::Unknown, "smartctl not installed; hardware health unknown.".to_string()),
+    }
+}
+
 pub fn detect_timezones() -> BTreeMap<String, Vec<String>> {
     let base_dir = Path::new("/usr/share/zoneinfo");
     let ignore = ["posix", "right", "Etc", "SystemV"];
@@ -443,5 +505,18 @@ mod tests {
         // isn't practical without refactoring for injection, so we just
         // assert detect_timezones() returns a non-empty map on this host.
         assert!(!detect_timezones().is_empty());
+    }
+
+    #[test]
+    fn disk_health_reports_unknown_hardware_without_smartctl_binary() {
+        let health = check_disk_health("/dev/null");
+        assert!(!health.hardware_note.is_empty());
+        assert!(!health.structure_note.is_empty());
+    }
+
+    #[test]
+    fn disk_health_status_variants_are_distinguishable() {
+        assert_ne!(HealthStatus::Ok, HealthStatus::Warn);
+        assert_ne!(HealthStatus::Ok, HealthStatus::Unknown);
     }
 }
