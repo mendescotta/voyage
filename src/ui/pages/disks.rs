@@ -67,10 +67,15 @@ impl DisksPage {
             disks.iter().map(|d| format!("{} ({})", d.model, d.size)).collect()
         };
         let disk_row = adw::ComboRow::builder().title("Target disk").model(&string_list(&disk_labels)).build();
+        let layout_row = adw::ComboRow::builder()
+            .title("Layout")
+            .model(&string_list(&["Basic".to_string(), "Basic + swap".to_string()]))
+            .build();
         let auto_button = gtk::Button::builder().label("Partition automatically").css_classes(["destructive-action"]).build();
         let auto_row = adw::ActionRow::builder().title("Erase disk and create partitions").build();
         auto_row.add_suffix(&auto_button);
         auto_group.add(&disk_row);
+        auto_group.add(&layout_row);
         auto_group.add(&auto_row);
         widget.append(&auto_group);
 
@@ -175,6 +180,7 @@ impl DisksPage {
 
         {
             let disk_row = page.disk_row.clone();
+            let layout_row = layout_row.clone();
             let state = page.state.clone();
             let (root_row_w, efi_row_w, swap_row_w, home_row_w) =
                 (page.root_row.clone(), page.efi_row.clone(), page.swap_row.clone(), page.home_row.clone());
@@ -184,6 +190,7 @@ impl DisksPage {
                     return;
                 }
                 let disk = state_ref.disks[disk_row.selected() as usize].name.clone();
+                let layout = if layout_row.selected() == 1 { "with-swap" } else { "basic" };
                 drop(state_ref);
 
                 let dialog = adw::AlertDialog::builder()
@@ -206,7 +213,7 @@ impl DisksPage {
                     if response != "continue" {
                         return;
                     }
-                    match Command::new("pkexec").arg("bash").arg(auto_partition_script()).arg(&disk).status() {
+                    match Command::new("pkexec").arg("bash").arg(auto_partition_script()).arg(&disk).arg(layout).status() {
                         Ok(status) if status.success() => {
                             let mut state_mut = state.borrow_mut();
                             state_mut.partitions = system_detect::get_partitions_detailed();
