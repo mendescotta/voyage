@@ -40,6 +40,8 @@ pub struct DisksPage {
     swap_row: adw::ComboRow,
     home_row: adw::ComboRow,
     filesys_row: adw::ComboRow,
+    btrfs_flat_row: adw::SwitchRow,
+    btrfs_snapshots_row: adw::SwitchRow,
     bootloader_row: adw::ComboRow,
     is_efi: bool,
     bootloaders: &'static [(&'static str, &'static str)],
@@ -108,7 +110,39 @@ impl DisksPage {
             .model(&string_list(&FILESYSTEMS.iter().map(|s| s.to_string()).collect::<Vec<_>>()))
             .build();
         fs_group.add(&filesys_row);
+
+        let btrfs_flat_row = adw::SwitchRow::builder()
+            .title("Flat layout")
+            .subtitle("Single subvolume instead of @/@home/@log/@pkg. Disables snapshots.")
+            .visible(false)
+            .build();
+        let btrfs_snapshots_row = adw::SwitchRow::builder()
+            .title("Enable @snapshots subvolume")
+            .subtitle("Mounted at /.snapshots.")
+            .visible(false)
+            .build();
+        fs_group.add(&btrfs_flat_row);
+        fs_group.add(&btrfs_snapshots_row);
         widget.append(&fs_group);
+
+        {
+            let btrfs_flat_row = btrfs_flat_row.clone();
+            let btrfs_snapshots_row = btrfs_snapshots_row.clone();
+            filesys_row.connect_selected_notify(move |row| {
+                let is_btrfs = FILESYSTEMS[row.selected() as usize] == "btrfs";
+                btrfs_flat_row.set_visible(is_btrfs);
+                btrfs_snapshots_row.set_visible(is_btrfs);
+            });
+        }
+        {
+            let btrfs_snapshots_row = btrfs_snapshots_row.clone();
+            btrfs_flat_row.connect_active_notify(move |row| {
+                if row.is_active() {
+                    btrfs_snapshots_row.set_active(false);
+                }
+                btrfs_snapshots_row.set_sensitive(!row.is_active());
+            });
+        }
 
         let bootloaders: &'static [(&'static str, &'static str)] = if is_efi { EFI_BOOTLOADERS } else { BIOS_BOOTLOADERS };
         let bootloader_group = adw::PreferencesGroup::builder().title("Bootloader").build();
@@ -130,6 +164,8 @@ impl DisksPage {
             swap_row,
             home_row,
             filesys_row,
+            btrfs_flat_row,
+            btrfs_snapshots_row,
             bootloader_row,
             is_efi,
             bootloaders,
@@ -296,8 +332,8 @@ impl DisksPage {
                     2 => SwapStrategy::Swapfile,
                     _ => SwapStrategy::None,
                 },
-                btrfs_flat: false,
-                btrfs_snapshots: false,
+                btrfs_flat: self.btrfs_flat_row.is_active(),
+                btrfs_snapshots: self.btrfs_snapshots_row.is_active(),
             },
             Vec::new(),
         )
