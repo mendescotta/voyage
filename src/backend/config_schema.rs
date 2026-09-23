@@ -106,7 +106,9 @@ fn username_valid(username: &str) -> bool {
 /// Pure parse of `lsblk` output: true if the disk is GPT-partitioned but
 /// has no BIOS Boot partition among the given partition type GUIDs.
 fn gpt_without_bios_boot_from_lsblk(pttype: &str, parttypes: &[String]) -> bool {
-    if pttype.trim() != "gpt" {
+    // Only the disk's own PTTYPE line matters here; without `-d`, lsblk
+    // also prints one line per child partition.
+    if pttype.lines().next().unwrap_or("").trim() != "gpt" {
         return false;
     }
     !parttypes
@@ -116,7 +118,7 @@ fn gpt_without_bios_boot_from_lsblk(pttype: &str, parttypes: &[String]) -> bool 
 
 fn is_gpt_without_bios_boot(disk_dev: &str) -> bool {
     let pttype_out = Command::new("lsblk")
-        .args(["-no", "PTTYPE", disk_dev])
+        .args(["-dno", "PTTYPE", disk_dev])
         .output();
     let Ok(pttype_out) = pttype_out else { return false };
     if !pttype_out.status.success() {
@@ -461,6 +463,16 @@ mod tests {
     fn gpt_without_bios_boot_detects_missing_partition() {
         let parttypes = vec!["c12a7328-f81f-11d2-ba4b-00a0c93ec93b".to_string()];
         assert!(gpt_without_bios_boot_from_lsblk("gpt", &parttypes));
+    }
+
+    #[test]
+    fn gpt_without_bios_boot_detects_missing_partition_with_multiline_pttype() {
+        // `lsblk -no PTTYPE <disk>` without -d prints one "gpt" line per
+        // child partition too, not just the disk itself -- a disk with a
+        // selected root partition always has at least one child, so this
+        // is the common case, not an edge case.
+        let parttypes = vec!["c12a7328-f81f-11d2-ba4b-00a0c93ec93b".to_string()];
+        assert!(gpt_without_bios_boot_from_lsblk("gpt\ngpt\ngpt\n", &parttypes));
     }
 
     #[test]
