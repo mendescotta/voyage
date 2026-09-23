@@ -322,17 +322,21 @@ pub fn check_disk_health(disk_dev: &str) -> DiskHealth {
 }
 
 fn check_structure(disk_dev: &str) -> (HealthStatus, String) {
-    let output = Command::new("lsblk").args(["-no", "PTTYPE", disk_dev]).output();
+    // -d excludes child partition rows; without it lsblk prints one PTTYPE
+    // line per partition too, which interpret_pttype also guards against.
+    let output = Command::new("lsblk").args(["-dno", "PTTYPE", disk_dev]).output();
     match output {
-        Ok(out) if out.status.success() => {
-            let pttype = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if pttype.is_empty() {
-                (HealthStatus::Ok, "No partition table yet (blank disk).".to_string())
-            } else {
-                (HealthStatus::Ok, format!("Partition table: {pttype}"))
-            }
-        }
+        Ok(out) if out.status.success() => interpret_pttype(&String::from_utf8_lossy(&out.stdout)),
         _ => (HealthStatus::Unknown, "Could not read partition table (lsblk unavailable).".to_string()),
+    }
+}
+
+fn interpret_pttype(raw: &str) -> (HealthStatus, String) {
+    let pttype = raw.lines().next().unwrap_or("").trim();
+    if pttype.is_empty() {
+        (HealthStatus::Ok, "No partition table yet (blank disk).".to_string())
+    } else {
+        (HealthStatus::Ok, format!("Partition table: {pttype}"))
     }
 }
 
@@ -518,5 +522,21 @@ mod tests {
     fn disk_health_status_variants_are_distinguishable() {
         assert_ne!(HealthStatus::Ok, HealthStatus::Warn);
         assert_ne!(HealthStatus::Ok, HealthStatus::Unknown);
+    }
+
+    #[test]
+    fn interpret_pttype_ignores_child_partition_rows() {
+        // `lsblk -no PTTYPE <disk>` without -d prints one row per child
+        // partition too, not just the disk itself.
+        let (status, note) = interpret_pttype("gpt\ngpt\ngpt\ngpt\n");
+        assert_eq!(status, HealthStatus::Ok);
+        assert_eq!(note, "Partition table: gpt");
+    }
+
+    #[test]
+    fn interpret_pttype_blank_disk_has_no_partition_table() {
+        let (status, note) = interpret_pttype("");
+        assert_eq!(status, HealthStatus::Ok);
+        assert_eq!(note, "No partition table yet (blank disk).");
     }
 }
