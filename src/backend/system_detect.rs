@@ -344,16 +344,38 @@ fn check_hardware(disk_dev: &str) -> (HealthStatus, String) {
     let output = Command::new("smartctl").args(["-H", disk_dev]).output();
     match output {
         Ok(out) => {
-            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
-            if text.contains("passed") || text.contains("ok") {
-                (HealthStatus::Ok, "SMART health check passed.".to_string())
-            } else if out.status.success() {
-                (HealthStatus::Unknown, "SMART status unclear; check manually if concerned.".to_string())
-            } else {
-                (HealthStatus::Warn, "SMART reported a possible issue; check with smartctl -a before proceeding.".to_string())
-            }
+            let exit_code = out.status.code().unwrap_or(-1);
+            interpret_smartctl(exit_code, &String::from_utf8_lossy(&out.stdout))
         }
         Err(_) => (HealthStatus::Unknown, "smartctl not installed; hardware health unknown.".to_string()),
+    }
+}
+
+/// smartctl's exit status is a bitmask (man smartctl, EXIT STATUS): bits
+/// 0-2 mean it couldn't check the disk at all (bad args, can't open the
+/// device -- e.g. no permission, since Voyage's GUI runs unprivileged),
+/// bits 3-7 mean it found a real problem.
+fn interpret_smartctl(exit_code: i32, stdout: &str) -> (HealthStatus, String) {
+    if exit_code & 0x07 != 0 {
+        return (
+            HealthStatus::Unknown,
+            "smartctl could not check this disk (missing permissions or unsupported device).".to_string(),
+        );
+    }
+    if exit_code & 0xf8 != 0 {
+        return (
+            HealthStatus::Warn,
+            "SMART reported a possible issue; check with smartctl -a before proceeding.".to_string(),
+        );
+    }
+    let passed = stdout.lines().any(|line| {
+        let upper = line.to_uppercase();
+        upper.contains("SMART OVERALL-HEALTH") && (upper.contains("PASSED") || upper.contains("OK"))
+    });
+    if passed {
+        (HealthStatus::Ok, "SMART health check passed.".to_string())
+    } else {
+        (HealthStatus::Unknown, "SMART status unclear; check manually if concerned.".to_string())
     }
 }
 
@@ -538,5 +560,28 @@ mod tests {
         let (status, note) = interpret_pttype("");
         assert_eq!(status, HealthStatus::Ok);
         assert_eq!(note, "No partition table yet (blank disk).");
+    }
+
+    #[test]
+    fn interpret_smartctl_permission_denied_is_unknown_not_warn() {
+        // Voyage's GUI runs unprivileged; smartctl exits with bit 1 set
+        // ("device open failed") when it can't read the disk, which is
+        // not evidence of a hardware problem.
+        let (status, _) = interpret_smartctl(2, "");
+        assert_eq!(status, HealthStatus::Unknown);
+    }
+
+    #[test]
+    fn interpret_smartctl_real_failure_is_warn() {
+        let (status, _) = interpret_smartctl(8, "SMART overall-health self-assessment test result: FAILED");
+        assert_eq!(status, HealthStatus::Warn);
+    }
+
+    #[test]
+    fn interpret_smartctl_passed_result_line_is_ok() {
+        let (status, note) =
+            interpret_smartctl(0, "SMART overall-health self-assessment test result: PASSED\n");
+        assert_eq!(status, HealthStatus::Ok);
+        assert_eq!(note, "SMART health check passed.");
     }
 }
