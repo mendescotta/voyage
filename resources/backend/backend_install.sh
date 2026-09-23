@@ -71,6 +71,12 @@ enable_service() {
     esac
 }
 
+run_step() {
+    local desc="$1"; shift
+    echo "-> $desc"
+    "$@" || die "$desc failed"
+}
+
 # Extra kernel cmdline dynamod needs, appended to whichever bootloader's
 # own cmdline construction is in use. rdinit= bypasses the initramfs's own
 # /init entirely and execs this path from the initramfs image as PID 1 --
@@ -191,6 +197,27 @@ create_filesystems() {
         fi
         echo "UUID=$uuid $mntpt $fstype defaults 0 $fspassno" >>"$TARGET_FSTAB"
     done
+}
+
+# btrfs needs COW disabled on the file before it has any content, or
+# mkswap/swapon fail on it.
+setup_swapfile() {
+    local root_fs mem_kib mem_mib size_mib
+    root_fs="$(findmnt -no FSTYPE "$TARGETDIR")"
+    mem_kib="$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+    mem_mib=$(( mem_kib / 1024 ))
+    size_mib=$mem_mib
+    [ "$size_mib" -gt 8192 ] && size_mib=8192
+    [ "$size_mib" -lt 256 ] && size_mib=256
+
+    run_step "Creating ${size_mib}MiB swapfile" touch "$TARGETDIR/swapfile"
+    if [ "$root_fs" = "btrfs" ]; then
+        chattr +C "$TARGETDIR/swapfile" 2>/dev/null || true
+    fi
+    run_step "Allocating swapfile" fallocate -l "${size_mib}M" "$TARGETDIR/swapfile"
+    chmod 600 "$TARGETDIR/swapfile"
+    run_step "Formatting swapfile" mkswap "$TARGETDIR/swapfile"
+    echo "/swapfile none swap defaults 0 0" >>"$TARGET_FSTAB"
 }
 
 # Copy the base system from the Live ISO (local source)
@@ -821,6 +848,9 @@ echo "Log started at $LOG"
 # Step 1: Disks
 log_ui "CREATE_FS"
 create_filesystems
+if [ "$(get_option SWAPTYPE)" = "swapfile" ]; then
+    setup_swapfile
+fi
 
 # Step 2: Base install
 log_ui "COPY"
