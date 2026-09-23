@@ -211,6 +211,7 @@ impl DisksPage {
             let disk_row = page.disk_row.clone();
             let layout_row = layout_row.clone();
             let shred_row = shred_row.clone();
+            let swap_strategy_row_outer = page.swap_strategy_row.clone();
             let state = page.state.clone();
             let (root_row_w, efi_row_w, swap_row_w, home_row_w) =
                 (page.root_row.clone(), page.efi_row.clone(), page.swap_row.clone(), page.home_row.clone());
@@ -247,19 +248,32 @@ impl DisksPage {
                 let root = button.root();
                 let (root_row_w, efi_row_w, swap_row_w, home_row_w) =
                     (root_row_w.clone(), efi_row_w.clone(), swap_row_w.clone(), home_row_w.clone());
+                let swap_strategy_row = swap_strategy_row_outer.clone();
                 let error_root = root.clone();
                 dialog.connect_response(None, move |_dialog, response| {
                     if response != "continue" {
                         return;
                     }
-                    match Command::new("pkexec").arg("bash").arg(auto_partition_script()).arg(&disk).arg(layout).arg(shred_flag).status() {
-                        Ok(status) if status.success() => {
+                    match Command::new("pkexec").arg("bash").arg(auto_partition_script()).arg(&disk).arg(layout).arg(shred_flag).output() {
+                        Ok(output) if output.status.success() => {
+                            // The freshly created swap partition has no filesystem
+                            // signature yet, so it can't be found by fstype; the
+                            // script reports its device path directly instead.
+                            let swap_partition = String::from_utf8_lossy(&output.stdout)
+                                .lines()
+                                .find_map(|line| line.strip_prefix("SWAP_PARTITION=").map(str::to_string));
+
                             let mut state_mut = state.borrow_mut();
                             state_mut.partitions = system_detect::get_partitions_detailed();
                             let options = partition_options(&state_mut.partitions);
                             drop(state_mut);
                             for row in [&root_row_w, &efi_row_w, &swap_row_w, &home_row_w] {
                                 row.set_model(Some(&string_list(&options)));
+                            }
+                            if let Some(swap_name) = swap_partition {
+                                swap_strategy_row.set_selected(1);
+                                let state_ref = state.borrow();
+                                select_partition(&swap_row_w, &state_ref.partitions, &swap_name);
                             }
                         }
                         _ => {
@@ -340,6 +354,7 @@ impl DisksPage {
             }
         }
         if let Some(swap) = swap_parts.first() {
+            self.swap_strategy_row.set_selected(1);
             select_partition(&self.swap_row, &state.partitions, &swap.name);
         }
         if let Some(root) = other_sorted.first() {
