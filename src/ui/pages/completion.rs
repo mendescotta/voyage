@@ -25,6 +25,7 @@ pub fn completion_view(success: bool) -> CompletionView {
 
 pub struct CompletionPage {
     pub widget: gtk::Box,
+    icon: gtk::Image,
     heading: gtk::Label,
     detail: gtk::Label,
     log_button: gtk::Button,
@@ -38,6 +39,9 @@ impl CompletionPage {
             .valign(gtk::Align::Center)
             .margin_top(48)
             .build();
+
+        let icon = gtk::Image::builder().pixel_size(64).build();
+        widget.append(&icon);
 
         let heading = gtk::Label::builder().label("Installation complete").css_classes(["title-1"]).build();
         widget.append(&heading);
@@ -72,15 +76,20 @@ impl CompletionPage {
             }
         });
 
-        Self { widget, heading, detail, log_button }
+        Self { widget, icon, heading, detail, log_button }
     }
 
     pub fn set_result(&self, success: bool, message: &str) {
+        let view = completion_view(success);
+        self.icon.set_icon_name(Some(view.icon_name));
+        self.heading.set_text(view.heading);
+        self.heading.remove_css_class("success");
+        self.heading.remove_css_class("error");
+        self.heading.add_css_class(view.css_class);
+
         if success {
-            self.heading.set_text("Installation complete");
             self.detail.set_text("Your system has been installed successfully.\nClick 'Restart' to complete the process.");
         } else {
-            self.heading.set_text("Installation failed");
             let text = if message.is_empty() { format!("Check {LOG_PATH} for details.") } else { message.to_string() };
             self.detail.set_text(&text);
         }
