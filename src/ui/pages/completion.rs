@@ -9,6 +9,20 @@ const LOG_PATH: &str = "/tmp/installation.log";
 
 pub const TITLE: &str = "Finished";
 
+pub struct CompletionView {
+    pub heading: &'static str,
+    pub css_class: &'static str,
+    pub icon_name: &'static str,
+}
+
+pub fn completion_view(success: bool) -> CompletionView {
+    if success {
+        CompletionView { heading: "Installation complete", css_class: "success", icon_name: "emblem-ok-symbolic" }
+    } else {
+        CompletionView { heading: "Installation failed", css_class: "error", icon_name: "dialog-error-symbolic" }
+    }
+}
+
 pub struct CompletionPage {
     pub widget: gtk::Box,
     heading: gtk::Label,
@@ -71,5 +85,24 @@ impl CompletionPage {
             self.detail.set_text(&text);
         }
         self.log_button.set_visible(true);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn completion_view_distinguishes_success_and_failure() {
+        let ok = completion_view(true);
+        let fail = completion_view(false);
+        assert_ne!(ok.css_class, fail.css_class);
+        assert_ne!(ok.icon_name, fail.icon_name);
+        assert_ne!(ok.heading, fail.heading);
+    }
+
+    #[test]
+    fn completion_view_failure_uses_error_styling() {
+        assert_eq!(completion_view(false).css_class, "error");
     }
 }
