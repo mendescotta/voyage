@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Voyage
+GenericName=Void Linux Installer
+Comment=Install Void Linux to disk
+Exec=voyage
+Icon=org.voidlinux.voyage
+Terminal=false
+Categories=System;
+Keywords=install;void;setup;
+StartupNotify=true
+StartupWMClass=voyage
