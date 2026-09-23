@@ -37,7 +37,9 @@ fi
 # Detect the live environment's init: copy_rootfs copies that same
 # environment to disk, so whatever init is detected here is what ends up
 # installed.
-if [ -x /sbin/dinit ] || [ -x /usr/bin/dinit ]; then
+if [ -x /sbin/dynamod-init ]; then
+    INIT_SYSTEM="dynamod"
+elif [ -x /sbin/dinit ] || [ -x /usr/bin/dinit ]; then
     INIT_SYSTEM="dinit"
 else
     INIT_SYSTEM="runit"
@@ -50,10 +52,34 @@ get_option() {
 }
 
 enable_service() {
-    if [ "$INIT_SYSTEM" = "dinit" ]; then
-        ln -sf "/etc/dinit.d/$1" "$TARGETDIR/etc/dinit.d/boot.d/$1"
-    else
-        ln -sf "/etc/sv/$1" "$TARGETDIR/etc/runit/runsvdir/default/$1"
+    case "$INIT_SYSTEM" in
+        dinit)
+            ln -sf "/etc/dinit.d/$1" "$TARGETDIR/etc/dinit.d/boot.d/$1"
+            ;;
+        dynamod)
+            # dynamod enables services by presence in /etc/dynamod/services/,
+            # not by symlink. Services the dynamod package ships are already
+            # there; anything else this is asked to enable needs its own
+            # .toml written by the caller first -- this can't invent one
+            # from a dinit/runit service name alone.
+            [ -f "$TARGETDIR/etc/dynamod/services/$1.toml" ] || \
+                echo "WARNING: no /etc/dynamod/services/$1.toml found to enable" >&2
+            ;;
+        *)
+            ln -sf "/etc/sv/$1" "$TARGETDIR/etc/runit/runsvdir/default/$1"
+            ;;
+    esac
+}
+
+# Extra kernel cmdline dynamod needs, appended to whichever bootloader's
+# own cmdline construction is in use. rdinit= bypasses the initramfs's own
+# /init entirely and execs this path from the initramfs image as PID 1 --
+# a stock dracut-generated initramfs (dracut's own /init) doesn't contain
+# dynamod-init, so rebuild_initramfs() below replaces the dracut call with
+# one that does, for INIT_SYSTEM=dynamod.
+dynamod_cmdline_extra() {
+    if [ "$INIT_SYSTEM" = "dynamod" ]; then
+        printf ' rdinit=/sbin/dynamod-init init=/sbin/dynamod-init'
     fi
 }
 
@@ -666,6 +692,20 @@ install_grub() {
         grub_args="--target=$EFI_TARGET --efi-directory=/boot/efi --bootloader-id=Void --recheck"
     fi
 
+    # grub-mkconfig's own /etc/grub.d/10_linux builds the cmdline from
+    # GRUB_CMDLINE_LINUX_DEFAULT -- set it before generating grub.cfg
+    # rather than patching the generated file after the fact.
+    local extra_cmdline
+    extra_cmdline="$(dynamod_cmdline_extra)"
+    if [ -n "$extra_cmdline" ]; then
+        if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$TARGETDIR/etc/default/grub"; then
+            sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\\(.*\\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\\1${extra_cmdline}\"|" \
+                "$TARGETDIR/etc/default/grub"
+        else
+            printf 'GRUB_CMDLINE_LINUX_DEFAULT="%s"\n' "${extra_cmdline# }" >> "$TARGETDIR/etc/default/grub"
+        fi
+    fi
+
     chroot "$TARGETDIR" grub-install $grub_args "$dev" || die "Error installing GRUB on $dev"
     chroot "$TARGETDIR" grub-mkconfig -o /boot/grub/grub.cfg || die "Error generating grub.cfg"
 }
@@ -699,7 +739,7 @@ TIMEOUT=5
     PROTOCOL=linux
     KERNEL_PATH=boot:///vmlinuz-$kver
     MODULE_PATH=boot:///initramfs-$kver.img
-    CMDLINE=root=UUID=$root_uuid rw
+    CMDLINE=root=UUID=$root_uuid rw$(dynamod_cmdline_extra)
 EOF
 }
 
@@ -735,9 +775,11 @@ install_refind() {
 
     # initrd= path is relative to the filesystem root, not /boot, since
     # /boot is never its own mountpoint here -- needs the /boot/ prefix.
+    local extra_cmdline
+    extra_cmdline="$(dynamod_cmdline_extra)"
     cat > "$TARGETDIR/boot/refind_linux.conf" <<EOF
-"Boot with standard options"  "root=UUID=$root_uuid rw initrd=/boot/initramfs-%v.img"
-"Boot to single-user mode"  "root=UUID=$root_uuid rw single initrd=/boot/initramfs-%v.img"
+"Boot with standard options"  "root=UUID=$root_uuid rw${extra_cmdline} initrd=/boot/initramfs-%v.img"
+"Boot to single-user mode"  "root=UUID=$root_uuid rw single${extra_cmdline} initrd=/boot/initramfs-%v.img"
 EOF
 }
 
@@ -804,7 +846,31 @@ install_extra_software
 # (nvidia/intel) are in place -- the live ISO's initramfs was built for
 # the live environment's hardware, not necessarily the install target's.
 echo "Rebuilding initramfs for the target system..."
-chroot "$TARGETDIR" dracut --no-hostonly --add-drivers "ahci" --force || die "Error rebuilding initramfs"
+if [ "$INIT_SYSTEM" = "dynamod" ]; then
+    # rdinit= bypasses dracut's own /init entirely -- a stock
+    # dracut-generated initramfs never contains dynamod-init, so build a
+    # cpio image with it directly instead, at the same
+    # initramfs-<kver>.img path dracut would have used (every bootloader
+    # function above already looks for that exact filename, so nothing
+    # else needs to change to find it).
+    kver="$(kernel_version)"
+    [ -n "$kver" ] || die "No kernel image found in $TARGETDIR/boot to rebuild the initramfs for"
+    initramfs_dir="$(mktemp -d)"
+    mkdir -p "$initramfs_dir"/{sbin,bin,dev,proc,sys,newroot}
+    cp "$TARGETDIR/sbin/dynamod-init" "$initramfs_dir/sbin/dynamod-init"
+    if [ -f "$TARGETDIR/usr/bin/busybox" ]; then
+        cp "$TARGETDIR/usr/bin/busybox" "$initramfs_dir/bin/busybox"
+        for cmd in sh mdev mount umount; do
+            ln -sf busybox "$initramfs_dir/bin/$cmd"
+        done
+        ln -sf ../bin/mdev "$initramfs_dir/sbin/mdev"
+    fi
+    ( cd "$initramfs_dir" && find . -print0 | cpio --null -o --format=newc 2>/dev/null | gzip -9 ) \
+        > "$TARGETDIR/boot/initramfs-$kver.img"
+    rm -rf "$initramfs_dir"
+else
+    chroot "$TARGETDIR" dracut --no-hostonly --add-drivers "ahci" --force || die "Error rebuilding initramfs"
+fi
 
 log_ui "USER_CONFIG"
 set_rootpassword
