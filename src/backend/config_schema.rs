@@ -335,6 +335,7 @@ pub fn build_config(
     }
 
     let mirror_key = if fields.mirror.is_empty() { "Local" } else { fields.mirror.as_str() };
+    let btrfs_snapshots = disk.btrfs_snapshots && !disk.btrfs_flat;
 
     Ok(InstallConfig {
         locale: fields.locale.clone(),
@@ -358,7 +359,7 @@ pub fn build_config(
         bootloader_type: disk.bootloader_type.clone(),
         swap_strategy: disk.swap_strategy.as_conf_str().to_string(),
         btrfs_flat: disk.btrfs_flat,
-        btrfs_snapshots: disk.btrfs_snapshots,
+        btrfs_snapshots,
     })
 }
 
@@ -532,6 +533,29 @@ mod tests {
         let cfg = build_config(&fields, &disk, "").unwrap();
         assert_eq!(cfg.swap_strategy, "swapfile");
         assert!(!cfg.partitions.iter().any(|p| p.fs == "swap"));
+    }
+
+    #[test]
+    fn build_config_carries_btrfs_layout_choice() {
+        let fields = valid_fields();
+        let mut disk = efi_disk_choices();
+        disk.filesystem = "btrfs".to_string();
+        disk.btrfs_flat = true;
+        disk.btrfs_snapshots = false;
+        let cfg = build_config(&fields, &disk, "").unwrap();
+        assert!(cfg.btrfs_flat);
+        assert!(!cfg.btrfs_snapshots);
+    }
+
+    #[test]
+    fn build_config_flat_btrfs_ignores_snapshot_request() {
+        let fields = valid_fields();
+        let mut disk = efi_disk_choices();
+        disk.filesystem = "btrfs".to_string();
+        disk.btrfs_flat = true;
+        disk.btrfs_snapshots = true;
+        let cfg = build_config(&fields, &disk, "").unwrap();
+        assert!(!cfg.btrfs_snapshots, "flat layout has no subvolume boundary for @snapshots");
     }
 
     #[test]
