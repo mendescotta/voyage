@@ -136,6 +136,17 @@ create_filesystems() {
             mkdir -p "$TARGETDIR"
 
             if [ "$fstype" = "btrfs" ]; then
+                local btrfs_flat="$(get_option BTRFS_FLAT)"
+                local btrfs_snapshots="$(get_option BTRFS_SNAPSHOTS)"
+
+                if [ "$btrfs_flat" = "1" ]; then
+                    echo "Mounting flat BTRFS root..."
+                    mount "$dev" "$TARGETDIR" || die "Error mounting flat BTRFS root"
+                    uuid=$(blkid -o value -s UUID "$dev")
+                    echo "UUID=$uuid / btrfs defaults 0 0" >>"$TARGET_FSTAB"
+                    continue
+                fi
+
                 echo "Creating BTRFS subvolumes..."
 
                 # Temporary mount without subvol
@@ -145,6 +156,9 @@ create_filesystems() {
                 btrfs subvolume create "$TARGETDIR/@home" || die "Error creating @home"
                 btrfs subvolume create "$TARGETDIR/@log" || die "Error creating @log"
                 btrfs subvolume create "$TARGETDIR/@pkg" || die "Error creating @pkg"
+                if [ "$btrfs_snapshots" = "1" ]; then
+                    btrfs subvolume create "$TARGETDIR/@snapshots" || die "Error creating @snapshots"
+                fi
 
                 umount "$TARGETDIR"
 
@@ -163,6 +177,12 @@ create_filesystems() {
                 echo "UUID=$uuid /home btrfs defaults,subvol=@home 0 0" >>"$TARGET_FSTAB"
                 echo "UUID=$uuid /var/log btrfs defaults,subvol=@log 0 0" >>"$TARGET_FSTAB"
                 echo "UUID=$uuid /var/cache/xbps btrfs defaults,subvol=@pkg 0 0" >>"$TARGET_FSTAB"
+
+                if [ "$btrfs_snapshots" = "1" ]; then
+                    mkdir -p "$TARGETDIR/.snapshots"
+                    mount -o subvol=@snapshots "$dev" "$TARGETDIR/.snapshots"
+                    echo "UUID=$uuid /.snapshots btrfs defaults,subvol=@snapshots 0 0" >>"$TARGET_FSTAB"
+                fi
 
                 continue
             fi
