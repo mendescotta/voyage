@@ -70,6 +70,7 @@ fn btrfs_summary(config: &InstallConfig) -> String {
 pub struct ReviewPage {
     pub widget: gtk::Box,
     group: adw::PreferencesGroup,
+    rows: std::cell::RefCell<Vec<adw::ActionRow>>,
     pub install_button: gtk::Button,
 }
 
@@ -101,16 +102,18 @@ impl ReviewPage {
             .build();
         widget.append(&install_button);
 
-        Self { widget, group, install_button }
+        Self { widget, group, rows: std::cell::RefCell::new(Vec::new()), install_button }
     }
 
     pub fn set_config(&self, config: &InstallConfig) {
-        while let Some(child) = self.group.first_child() {
-            self.group.remove(&child);
+        let mut rows = self.rows.borrow_mut();
+        for row in rows.drain(..) {
+            self.group.remove(&row);
         }
         for (label, value) in review_rows(config) {
             let row = adw::ActionRow::builder().title(label).subtitle(value).build();
             self.group.add(&row);
+            rows.push(row);
         }
     }
 }
