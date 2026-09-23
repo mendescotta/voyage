@@ -88,6 +88,7 @@ pub fn generate_conf_file(config: &InstallConfig, conf_file: &str) -> std::io::R
         ("INTEL", if config.intel { "1" } else { "0" }.to_string()),
         ("BOOTLOADER", config.bootloader_disk.clone()),
         ("BOOTLOADER_TYPE", config.bootloader_type.clone()),
+        ("SWAPTYPE", config.swap_strategy.clone()),
     ];
     for (key, value) in lines {
         writeln!(file, "{key} {}", escape_conf_value(&value))?;
@@ -291,7 +292,7 @@ mod tests {
             ],
             bootloader_disk: "/dev/sda".to_string(),
             bootloader_type: "grub".to_string(),
-            swap_strategy: "none".to_string(),
+            swap_strategy: "swapfile".to_string(),
             btrfs_flat: false,
             btrfs_snapshots: false,
         }
@@ -312,6 +313,7 @@ mod tests {
         assert!(content.contains("UPDATE 1\n"));
         assert!(content.contains("BOOTLOADER /dev/sda\n"));
         assert!(content.contains("BOOTLOADER_TYPE grub\n"));
+        assert!(content.contains("SWAPTYPE swapfile\n"));
     }
 
     #[test]
