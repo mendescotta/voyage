@@ -184,6 +184,7 @@ pub fn build_partitions(
     raw_parts: &RawPartitions,
     filesystem: &str,
     want_efi: bool,
+    swap_strategy: SwapStrategy,
 ) -> Result<Vec<Partition>, Vec<FieldError>> {
     let mut errors = Vec::new();
     let mut partitions = Vec::new();
@@ -210,13 +211,20 @@ pub fn build_partitions(
         }
     }
 
-    if let Some(dev) = &raw_parts.swap {
-        partitions.push(Partition {
-            dev: dev.clone(),
-            point: "none".to_string(),
-            fs: "swap".to_string(),
-            format: true,
-        });
+    match swap_strategy {
+        SwapStrategy::Partition => match &raw_parts.swap {
+            None => errors.push((
+                "swap".to_string(),
+                "You must select a Swap partition, or choose a different swap strategy.".to_string(),
+            )),
+            Some(dev) => partitions.push(Partition {
+                dev: dev.clone(),
+                point: "none".to_string(),
+                fs: "swap".to_string(),
+                format: true,
+            }),
+        },
+        SwapStrategy::None | SwapStrategy::Swapfile => {}
     }
 
     if let Some(dev) = &raw_parts.home {
@@ -296,7 +304,7 @@ pub fn build_config(
         return Err(errors);
     }
 
-    let partitions = build_partitions(&disk.raw_parts, &disk.filesystem, disk.want_efi)?;
+    let partitions = build_partitions(&disk.raw_parts, &disk.filesystem, disk.want_efi, disk.swap_strategy)?;
 
     // Root is guaranteed present here: build_partitions only succeeds when
     // raw_parts.root is Some.
@@ -449,14 +457,14 @@ mod tests {
 
     #[test]
     fn build_partitions_requires_root() {
-        let err = build_partitions(&RawPartitions::default(), "ext4", false).unwrap_err();
+        let err = build_partitions(&RawPartitions::default(), "ext4", false, SwapStrategy::None).unwrap_err();
         assert_eq!(err[0].0, "root");
     }
 
     #[test]
     fn build_partitions_requires_efi_when_wanted() {
         let raw = RawPartitions { root: Some("/dev/sda2".to_string()), ..Default::default() };
-        let err = build_partitions(&raw, "ext4", true).unwrap_err();
+        let err = build_partitions(&raw, "ext4", true, SwapStrategy::None).unwrap_err();
         assert_eq!(err[0].0, "efi");
     }
 
@@ -468,7 +476,7 @@ mod tests {
             swap: Some("/dev/sda3".to_string()),
             home: Some("/dev/sda4".to_string()),
         };
-        let parts = build_partitions(&raw, "ext4", true).unwrap();
+        let parts = build_partitions(&raw, "ext4", true, SwapStrategy::Partition).unwrap();
         assert_eq!(parts.len(), 4);
         assert_eq!(parts[0].point, "/");
         assert!(parts[0].format);
@@ -504,6 +512,26 @@ mod tests {
         };
         let err = build_config(&fields, &disk, "").unwrap_err();
         assert_eq!(err[0].0, "bootloader");
+    }
+
+    #[test]
+    fn build_config_partition_strategy_requires_swap_partition() {
+        let fields = valid_fields();
+        let mut disk = efi_disk_choices();
+        disk.swap_strategy = SwapStrategy::Partition;
+        let err = build_config(&fields, &disk, "").unwrap_err();
+        assert!(err.iter().any(|(k, _)| k == "swap"));
+    }
+
+    #[test]
+    fn build_config_swapfile_strategy_ignores_swap_partition_selection() {
+        let fields = valid_fields();
+        let mut disk = efi_disk_choices();
+        disk.raw_parts.swap = Some("/dev/sda3".to_string());
+        disk.swap_strategy = SwapStrategy::Swapfile;
+        let cfg = build_config(&fields, &disk, "").unwrap();
+        assert_eq!(cfg.swap_strategy, "swapfile");
+        assert!(!cfg.partitions.iter().any(|p| p.fs == "swap"));
     }
 
     #[test]
