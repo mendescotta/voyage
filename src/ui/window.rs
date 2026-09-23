@@ -246,7 +246,7 @@ fn collect_all(state: &Rc<RefCell<State>>) -> Result<crate::backend::config_sche
     errors.extend(mirrors_errors);
     errors.extend(users_errors);
 
-    let (disks_fields, disks_errors) = s.disks.collect();
+    let (disk_choices, disks_errors) = s.disks.collect();
     errors.extend(disks_errors);
     if !errors.is_empty() {
         return Err(errors);
@@ -270,14 +270,7 @@ fn collect_all(state: &Rc<RefCell<State>>) -> Result<crate::backend::config_sche
         intel: mirrors_fields.intel,
     };
 
-    build_config(
-        &fields,
-        &disks_fields.raw_parts,
-        &disks_fields.filesys,
-        s.sys_data.efi,
-        s.sys_data.display_manager.as_deref().unwrap_or(""),
-        &disks_fields.bootloader_type,
-    )
+    build_config(&fields, &disk_choices, s.sys_data.display_manager.as_deref().unwrap_or(""))
 }
 
 fn start_install(state: &Rc<RefCell<State>>) {

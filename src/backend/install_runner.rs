@@ -291,6 +291,9 @@ mod tests {
             ],
             bootloader_disk: "/dev/sda".to_string(),
             bootloader_type: "grub".to_string(),
+            swap_strategy: "none".to_string(),
+            btrfs_flat: false,
+            btrfs_snapshots: false,
         }
     }
 

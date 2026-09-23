@@ -70,6 +70,9 @@ pub struct InstallConfig {
     pub partitions: Vec<Partition>,
     pub bootloader_disk: String,
     pub bootloader_type: String,
+    pub swap_strategy: String,
+    pub btrfs_flat: bool,
+    pub btrfs_snapshots: bool,
 }
 
 fn hostname_valid(hostname: &str) -> bool {
@@ -148,6 +151,35 @@ fn bootloader_disk(root_dev: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SwapStrategy {
+    #[default]
+    None,
+    Partition,
+    Swapfile,
+}
+
+impl SwapStrategy {
+    pub fn as_conf_str(self) -> &'static str {
+        match self {
+            SwapStrategy::None => "none",
+            SwapStrategy::Partition => "partition",
+            SwapStrategy::Swapfile => "swapfile",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DiskChoices {
+    pub raw_parts: RawPartitions,
+    pub filesystem: String,
+    pub want_efi: bool,
+    pub bootloader_type: String,
+    pub swap_strategy: SwapStrategy,
+    pub btrfs_flat: bool,
+    pub btrfs_snapshots: bool,
+}
+
 pub fn build_partitions(
     raw_parts: &RawPartitions,
     filesystem: &str,
@@ -203,14 +235,10 @@ pub fn build_partitions(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn build_config(
     fields: &InstallFields,
-    raw_parts: &RawPartitions,
-    filesystem: &str,
-    want_efi: bool,
+    disk: &DiskChoices,
     display_manager: &str,
-    bootloader_type: &str,
 ) -> Result<InstallConfig, Vec<FieldError>> {
     let mut errors = Vec::new();
 
@@ -268,15 +296,15 @@ pub fn build_config(
         return Err(errors);
     }
 
-    let partitions = build_partitions(raw_parts, filesystem, want_efi)?;
+    let partitions = build_partitions(&disk.raw_parts, &disk.filesystem, disk.want_efi)?;
 
     // Root is guaranteed present here: build_partitions only succeeds when
     // raw_parts.root is Some.
-    let root_dev = raw_parts.root.as_ref().unwrap();
+    let root_dev = disk.raw_parts.root.as_ref().unwrap();
     let disk_dev = bootloader_disk(root_dev);
 
-    if matches!(bootloader_type, "limine" | "refind") && !want_efi {
-        let name = if bootloader_type == "limine" { "Limine" } else { "rEFInd" };
+    if matches!(disk.bootloader_type.as_str(), "limine" | "refind") && !disk.want_efi {
+        let name = if disk.bootloader_type == "limine" { "Limine" } else { "rEFInd" };
         return Err(vec![(
             "bootloader".to_string(),
             format!(
@@ -286,7 +314,7 @@ pub fn build_config(
         )]);
     }
 
-    if bootloader_type == "grub" && !want_efi && is_gpt_without_bios_boot(&disk_dev) {
+    if disk.bootloader_type == "grub" && !disk.want_efi && is_gpt_without_bios_boot(&disk_dev) {
         return Err(vec![(
             "disk".to_string(),
             format!(
@@ -319,7 +347,10 @@ pub fn build_config(
         intel: fields.intel,
         partitions,
         bootloader_disk: disk_dev,
-        bootloader_type: bootloader_type.to_string(),
+        bootloader_type: disk.bootloader_type.clone(),
+        swap_strategy: disk.swap_strategy.as_conf_str().to_string(),
+        btrfs_flat: disk.btrfs_flat,
+        btrfs_snapshots: disk.btrfs_snapshots,
     })
 }
 
@@ -353,6 +384,18 @@ mod tests {
             efi: Some("/dev/sda1".to_string()),
             swap: None,
             home: None,
+        }
+    }
+
+    fn efi_disk_choices() -> DiskChoices {
+        DiskChoices {
+            raw_parts: efi_parts(),
+            filesystem: "ext4".to_string(),
+            want_efi: true,
+            bootloader_type: "grub".to_string(),
+            swap_strategy: SwapStrategy::None,
+            btrfs_flat: false,
+            btrfs_snapshots: false,
         }
     }
 
@@ -437,7 +480,7 @@ mod tests {
     fn build_config_rejects_missing_required_fields() {
         let mut fields = valid_fields();
         fields.hostname = String::new();
-        let err = build_config(&fields, &efi_parts(), "ext4", true, "", "grub").unwrap_err();
+        let err = build_config(&fields, &efi_disk_choices(), "").unwrap_err();
         assert!(err.iter().any(|(k, _)| k == "hostname"));
     }
 
@@ -445,34 +488,43 @@ mod tests {
     fn build_config_rejects_password_mismatch_whitespace() {
         let mut fields = valid_fields();
         fields.userpassword = " leading".to_string();
-        let err = build_config(&fields, &efi_parts(), "ext4", true, "", "grub").unwrap_err();
+        let err = build_config(&fields, &efi_disk_choices(), "").unwrap_err();
         assert!(err.iter().any(|(k, _)| k == "userpassword"));
     }
 
     #[test]
     fn build_config_limine_requires_efi() {
         let fields = valid_fields();
-        let raw = RawPartitions { root: Some("/dev/sda1".to_string()), ..Default::default() };
-        let err = build_config(&fields, &raw, "ext4", false, "", "limine").unwrap_err();
+        let disk = DiskChoices {
+            raw_parts: RawPartitions { root: Some("/dev/sda1".to_string()), ..Default::default() },
+            filesystem: "ext4".to_string(),
+            want_efi: false,
+            bootloader_type: "limine".to_string(),
+            ..Default::default()
+        };
+        let err = build_config(&fields, &disk, "").unwrap_err();
         assert_eq!(err[0].0, "bootloader");
     }
 
     #[test]
     fn build_config_happy_path_efi_grub() {
         let fields = valid_fields();
-        let cfg = build_config(&fields, &efi_parts(), "ext4", true, "gdm", "grub").unwrap();
+        let cfg = build_config(&fields, &efi_disk_choices(), "gdm").unwrap();
         assert_eq!(cfg.timezone, "America/New_York");
         assert_eq!(cfg.bootloader_disk, "/dev/sda");
         assert_eq!(cfg.mirror, "Default");
         assert!(cfg.update);
         assert_eq!(cfg.partitions.len(), 2);
+        assert_eq!(cfg.swap_strategy, "none");
+        assert!(!cfg.btrfs_flat);
+        assert!(!cfg.btrfs_snapshots);
     }
 
     #[test]
     fn build_config_local_mirror_never_updates() {
         let mut fields = valid_fields();
         fields.mirror = "Local".to_string();
-        let cfg = build_config(&fields, &efi_parts(), "ext4", true, "", "grub").unwrap();
+        let cfg = build_config(&fields, &efi_disk_choices(), "").unwrap();
         assert!(!cfg.update);
     }
 }

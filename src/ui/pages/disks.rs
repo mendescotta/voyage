@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 
-use crate::backend::config_schema::RawPartitions;
+use crate::backend::config_schema::{DiskChoices, RawPartitions, SwapStrategy};
 use crate::backend::paths::auto_partition_script;
 use crate::backend::system_detect::{self, Disk, PartitionDetail};
 use crate::ui::SysData;
@@ -262,16 +262,27 @@ impl DisksPage {
         self.state.borrow().partitions.get(index - 1).map(|p| p.name.clone())
     }
 
-    pub fn collect(&self) -> (DisksFields, Vec<(String, String)>) {
+    pub fn collect(&self) -> (DiskChoices, Vec<(String, String)>) {
         let raw_parts = RawPartitions {
             root: self.partition_device(&self.root_row),
             efi: if self.is_efi { self.partition_device(&self.efi_row) } else { None },
             swap: self.partition_device(&self.swap_row),
             home: self.partition_device(&self.home_row),
         };
-        let filesys = FILESYSTEMS[self.filesys_row.selected() as usize].to_string();
+        let filesystem = FILESYSTEMS[self.filesys_row.selected() as usize].to_string();
         let bootloader_type = self.bootloaders[self.bootloader_row.selected() as usize].1.to_string();
-        (DisksFields { raw_parts, filesys, bootloader_type }, Vec::new())
+        (
+            DiskChoices {
+                raw_parts,
+                filesystem,
+                want_efi: self.is_efi,
+                bootloader_type,
+                swap_strategy: SwapStrategy::None,
+                btrfs_flat: false,
+                btrfs_snapshots: false,
+            },
+            Vec::new(),
+        )
     }
 }
 
@@ -285,11 +296,4 @@ fn select_partition(row: &adw::ComboRow, partitions: &[PartitionDetail], name: &
     if let Some(index) = partitions.iter().position(|p| p.name == name) {
         row.set_selected((index + 1) as u32);
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct DisksFields {
-    pub raw_parts: RawPartitions,
-    pub filesys: String,
-    pub bootloader_type: String,
 }
