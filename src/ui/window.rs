@@ -11,17 +11,19 @@ use crate::ui::pages::completion::CompletionPage;
 use crate::ui::pages::disks::DisksPage;
 use crate::ui::pages::installation::InstallationPage;
 use crate::ui::pages::mirrors::MirrorsPage;
+use crate::ui::pages::review::ReviewPage;
 use crate::ui::pages::users::UsersPage;
 use crate::ui::pages::welcome::WelcomePage;
 use crate::ui::{pages, SysData};
 
-const PAGE_COUNT: usize = 6;
+const PAGE_COUNT: usize = 7;
 const WELCOME: usize = 0;
 const MIRRORS: usize = 1;
 const USERS: usize = 2;
 const DISKS: usize = 3;
-const INSTALLATION: usize = 4;
-const COMPLETION: usize = 5;
+const REVIEW: usize = 4;
+const INSTALLATION: usize = 5;
+const COMPLETION: usize = 6;
 
 struct State {
     sys_data: SysData,
@@ -30,6 +32,7 @@ struct State {
     mirrors: MirrorsPage,
     users: UsersPage,
     disks: DisksPage,
+    review: ReviewPage,
     installation: InstallationPage,
     completion: CompletionPage,
     stack: gtk::Stack,
@@ -52,6 +55,7 @@ pub fn build(app: &adw::Application, sys_data: SysData, demo: bool) -> adw::Appl
     let mirrors = MirrorsPage::new(&sys_data);
     let users = UsersPage::new(&sys_data);
     let disks = DisksPage::new(&sys_data);
+    let review = ReviewPage::new();
     let installation = InstallationPage::new();
     let completion = CompletionPage::new();
 
@@ -60,6 +64,7 @@ pub fn build(app: &adw::Application, sys_data: SysData, demo: bool) -> adw::Appl
     stack.add_titled(&mirrors.widget, Some(pages::mirrors::TITLE), pages::mirrors::TITLE);
     stack.add_titled(&users.widget, Some(pages::users::TITLE), pages::users::TITLE);
     stack.add_titled(&disks.widget, Some(pages::disks::TITLE), pages::disks::TITLE);
+    stack.add_titled(&review.widget, Some(pages::review::TITLE), pages::review::TITLE);
     stack.add_titled(&installation.widget, Some(pages::installation::TITLE), pages::installation::TITLE);
     stack.add_titled(&completion.widget, Some(pages::completion::TITLE), pages::completion::TITLE);
 
@@ -113,6 +118,7 @@ pub fn build(app: &adw::Application, sys_data: SysData, demo: bool) -> adw::Appl
         mirrors,
         users,
         disks,
+        review,
         installation,
         completion,
         stack,
@@ -164,6 +170,12 @@ pub fn build(app: &adw::Application, sys_data: SysData, demo: bool) -> adw::Appl
         about_button.connect_clicked(move |_| show_about(&state));
     }
 
+    {
+        let state = state.clone();
+        let install_button = state.borrow().review.install_button.clone();
+        install_button.connect_clicked(move |_| start_install(&state));
+    }
+
     window
 }
 
@@ -175,23 +187,19 @@ fn update_nav(state: &Rc<RefCell<State>>) {
         MIRRORS => pages::mirrors::TITLE,
         USERS => pages::users::TITLE,
         DISKS => pages::disks::TITLE,
+        REVIEW => pages::review::TITLE,
         INSTALLATION => pages::installation::TITLE,
         _ => pages::completion::TITLE,
     };
     s.stack.set_visible_child_name(visible_title);
 
     let is_install_step = page == INSTALLATION;
+    let is_review_step = page == REVIEW;
     s.back_button.set_sensitive(page > 0 && page < PAGE_COUNT - 1 && !is_install_step);
 
     let is_last = page == PAGE_COUNT - 1;
-    s.next_button.set_visible(!is_install_step);
-    s.next_button.set_label(if page == PAGE_COUNT - 3 {
-        "Install"
-    } else if is_last {
-        "Restart"
-    } else {
-        "Next"
-    });
+    s.next_button.set_visible(!is_install_step && !is_review_step);
+    s.next_button.set_label(if is_last { "Restart" } else { "Next" });
 
     for (i, row) in s.step_rows.iter().enumerate() {
         row.remove_css_class("accent");
@@ -205,7 +213,14 @@ fn on_next(state: &Rc<RefCell<State>>) {
     let current = state.borrow().current_index;
 
     if current == DISKS {
-        start_install(state);
+        match collect_all(state) {
+            Ok(config) => {
+                state.borrow().review.set_config(&config);
+                state.borrow_mut().current_index = REVIEW;
+                update_nav(state);
+            }
+            Err(errors) => show_errors(state, &errors),
+        }
         return;
     }
     if current == COMPLETION {
