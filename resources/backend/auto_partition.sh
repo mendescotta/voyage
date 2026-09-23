@@ -2,10 +2,11 @@
 
 DISK="$1"
 LAYOUT="${2:-basic}"
+SHRED="${3:-}"
 TARGET="/mnt/target"
 
 if [ -z "$DISK" ]; then
-    echo "Usage: $0 /dev/sdX [basic|with-swap]"
+    echo "Usage: $0 /dev/sdX [basic|with-swap] [--shred]"
     exit 1
 fi
 
@@ -25,6 +26,27 @@ swap_size_mib() {
     [ "$size_mib" -lt 256 ] && size_mib=256
     echo "$size_mib"
 }
+
+# A disk previously used for LVM can leave active device-mapper nodes
+# that make sgdisk/wipefs behave unpredictably after the partition table
+# is wiped. Guarded by `command -v` so it's a no-op without lvm2.
+close_stale_lvm() {
+    local disk="$1" pv vg
+    command -v vgchange >/dev/null 2>&1 || return 0
+    vgscan --mknodes >/dev/null 2>&1 || true
+    pvscan --cache >/dev/null 2>&1 || true
+    for pv in $(lsblk -lnpo NAME,TYPE "$disk" 2>/dev/null | awk '$2=="lvm"{print $1}'); do
+        vg="$(pvs --noheadings -o vg_name "$pv" 2>/dev/null | tr -d ' ')"
+        [ -n "$vg" ] && vgchange -an "$vg" >/dev/null 2>&1
+    done
+}
+
+if [ "$SHRED" = "--shred" ]; then
+    echo "Securely erasing $DISK (single pass)..."
+    shred -n1 -z "$DISK" || echo "WARNING: shred failed on $DISK, continuing with partitioning anyway" >&2
+fi
+
+close_stale_lvm "$DISK"
 
 # Warning: wipes EVERYTHING on the disk
 sgdisk --zap-all "$DISK"
