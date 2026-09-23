@@ -81,14 +81,19 @@ run_step() {
 # type no longer matches reality. Not used for swap (swapon takes no -t)
 # or btrfs subvolume mounts (a plain fallback there would silently mount
 # the wrong subvolume).
+MOUNTED_FSTYPE=""
+
 mount_with_fallback() {
     local dev="$1" target="$2" fstype="$3"
     echo "-> Mounting $dev as $fstype on $target"
-    if mount -t "$fstype" "$dev" "$target" 2>/dev/null; then
+    if mount -t "$fstype" "$dev" "$target"; then
+        MOUNTED_FSTYPE="$fstype"
         return 0
     fi
     echo "-> $dev did not mount as $fstype, retrying with auto-detection"
-    if mount -t auto "$dev" "$target" 2>/dev/null; then
+    if mount -t auto "$dev" "$target"; then
+        MOUNTED_FSTYPE="$(findmnt -no FSTYPE "$target")"
+        echo "-> $dev actually mounted as ${MOUNTED_FSTYPE:-unknown}, not the recorded $fstype -- using the real type for fstab"
         return 0
     fi
     die "Error mounting $dev on $target (tried $fstype and auto-detection)"
@@ -155,6 +160,7 @@ create_filesystems() {
             if [ "$fstype" = "btrfs" ]; then
                 local btrfs_flat="$(get_option BTRFS_FLAT)"
                 local btrfs_snapshots="$(get_option BTRFS_SNAPSHOTS)"
+                local swaptype="$(get_option SWAPTYPE)"
 
                 if [ "$btrfs_flat" = "1" ]; then
                     echo "Mounting flat BTRFS root..."
@@ -175,6 +181,12 @@ create_filesystems() {
                 btrfs subvolume create "$TARGETDIR/@pkg" || die "Error creating @pkg"
                 if [ "$btrfs_snapshots" = "1" ]; then
                     btrfs subvolume create "$TARGETDIR/@snapshots" || die "Error creating @snapshots"
+                fi
+                if [ "$swaptype" = "swapfile" ]; then
+                    # A swapfile living inside @ blocks snapshotting the
+                    # whole subvolume once swap is active; give it its
+                    # own subvolume instead.
+                    btrfs subvolume create "$TARGETDIR/@swap" || die "Error creating @swap"
                 fi
 
                 umount "$TARGETDIR"
@@ -201,18 +213,24 @@ create_filesystems() {
                     echo "UUID=$uuid /.snapshots btrfs defaults,subvol=@snapshots 0 0" >>"$TARGET_FSTAB"
                 fi
 
+                if [ "$swaptype" = "swapfile" ]; then
+                    mkdir -p "$TARGETDIR/swap"
+                    mount -o subvol=@swap,nodatacow "$dev" "$TARGETDIR/swap"
+                    echo "UUID=$uuid /swap btrfs defaults,subvol=@swap,nodatacow 0 0" >>"$TARGET_FSTAB"
+                fi
+
                 continue
             fi
 
             mount_with_fallback "$dev" "$TARGETDIR" "$fstype"
 
             uuid=$(blkid -o value -s UUID "$dev")
-            if [ "$fstype" = "f2fs" ] || [ "$fstype" = "btrfs" ] || [ "$fstype" = "xfs" ]; then
+            if [ "$MOUNTED_FSTYPE" = "f2fs" ] || [ "$MOUNTED_FSTYPE" = "btrfs" ] || [ "$MOUNTED_FSTYPE" = "xfs" ]; then
                 fspassno=0
             else
                 fspassno=1
             fi
-            echo "UUID=$uuid $mntpt $fstype defaults 0 $fspassno" >>"$TARGET_FSTAB"
+            echo "UUID=$uuid $mntpt $MOUNTED_FSTYPE defaults 0 $fspassno" >>"$TARGET_FSTAB"
         fi
     done
 
@@ -225,21 +243,21 @@ create_filesystems() {
         
         mkdir -p "${TARGETDIR}${mntpt}"
         mount_with_fallback "$dev" "${TARGETDIR}${mntpt}" "$fstype"
-        
+
         uuid=$(blkid -o value -s UUID "$dev")
-        if [ "$fstype" = "f2fs" ] || [ "$fstype" = "btrfs" ] || [ "$fstype" = "xfs" ]; then
+        if [ "$MOUNTED_FSTYPE" = "f2fs" ] || [ "$MOUNTED_FSTYPE" = "btrfs" ] || [ "$MOUNTED_FSTYPE" = "xfs" ]; then
             fspassno=0
         else
             fspassno=2
         fi
-        echo "UUID=$uuid $mntpt $fstype defaults 0 $fspassno" >>"$TARGET_FSTAB"
+        echo "UUID=$uuid $mntpt $MOUNTED_FSTYPE defaults 0 $fspassno" >>"$TARGET_FSTAB"
     done
 }
 
 # btrfs needs COW disabled on the file before it has any content, or
 # mkswap/swapon fail on it.
 setup_swapfile() {
-    local root_fs mem_kib mem_mib size_mib
+    local root_fs mem_kib mem_mib size_mib swapfile_path
     root_fs="$(findmnt -no FSTYPE "$TARGETDIR")"
     mem_kib="$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
     mem_mib=$(( mem_kib / 1024 ))
@@ -247,14 +265,21 @@ setup_swapfile() {
     [ "$size_mib" -gt 8192 ] && size_mib=8192
     [ "$size_mib" -lt 256 ] && size_mib=256
 
-    run_step "Creating ${size_mib}MiB swapfile" touch "$TARGETDIR/swapfile"
-    if [ "$root_fs" = "btrfs" ]; then
-        chattr +C "$TARGETDIR/swapfile" 2>/dev/null || true
+    swapfile_path="$TARGETDIR/swapfile"
+    if [ "$root_fs" = "btrfs" ] && [ "$(get_option BTRFS_FLAT)" != "1" ]; then
+        # create_filesystems already created and mounted a dedicated
+        # @swap subvolume at $TARGETDIR/swap for this case.
+        swapfile_path="$TARGETDIR/swap/swapfile"
     fi
-    run_step "Allocating swapfile" fallocate -l "${size_mib}M" "$TARGETDIR/swapfile"
-    chmod 600 "$TARGETDIR/swapfile"
-    run_step "Formatting swapfile" mkswap "$TARGETDIR/swapfile"
-    echo "/swapfile none swap defaults 0 0" >>"$TARGET_FSTAB"
+
+    run_step "Creating ${size_mib}MiB swapfile" touch "$swapfile_path"
+    if [ "$root_fs" = "btrfs" ]; then
+        chattr +C "$swapfile_path" || die "Error disabling copy-on-write on $swapfile_path"
+    fi
+    run_step "Allocating swapfile" fallocate -l "${size_mib}M" "$swapfile_path"
+    chmod 600 "$swapfile_path"
+    run_step "Formatting swapfile" mkswap "$swapfile_path"
+    echo "${swapfile_path#$TARGETDIR} none swap defaults 0 0" >>"$TARGET_FSTAB"
 }
 
 # Copy the base system from the Live ISO (local source)
