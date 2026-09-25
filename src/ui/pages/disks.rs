@@ -4,8 +4,10 @@
 use std::cell::RefCell;
 use std::process::Command;
 use std::rc::Rc;
+use std::thread;
 
 use adw::prelude::*;
+use gtk::glib;
 
 use crate::backend::config_schema::{DiskChoices, RawPartitions, SwapStrategy};
 use crate::backend::paths::auto_partition_script;
@@ -189,22 +191,49 @@ impl DisksPage {
             let disk_row = page.disk_row.clone();
             let disks = page.state.borrow().disks.clone();
             let health_label = health_label.clone();
+            // `smartctl -H` can take several seconds on a spun-down or slow
+            // USB disk, so the check runs on a background thread (mirroring
+            // InstallRunner's channel pattern) rather than blocking the GTK
+            // main loop on every disk-row selection change. A late result
+            // for a disk the user has since clicked away from is dropped by
+            // comparing against the row's *current* selection when it
+            // arrives, not the selection at the time the check started.
+            let disk_row_for_connect = disk_row.clone();
             let update_health = move |index: usize| {
                 let Some(disk) = disks.get(index) else { return };
-                let health = check_disk_health(&disk.name);
-                let fmt = |status: HealthStatus, note: &str| match status {
-                    HealthStatus::Ok => format!("OK ({note})"),
-                    HealthStatus::Warn => format!("Warning ({note})"),
-                    HealthStatus::Unknown => format!("Unknown ({note})"),
-                };
-                health_label.set_text(&format!(
-                    "Structure: {} \u{b7} Hardware: {}",
-                    fmt(health.structure, &health.structure_note),
-                    fmt(health.hardware, &health.hardware_note),
-                ));
+                let disk_name = disk.name.clone();
+                health_label.set_text("Checking disk health\u{2026}");
+
+                let (tx, rx) = async_channel::bounded::<(String, system_detect::DiskHealth)>(1);
+                let health_disk_name = disk_name.clone();
+                thread::spawn(move || {
+                    let health = check_disk_health(&health_disk_name);
+                    let _ = tx.send_blocking((health_disk_name, health));
+                });
+
+                let health_label = health_label.clone();
+                let disk_row = disk_row.clone();
+                let disks = disks.clone();
+                glib::spawn_future_local(async move {
+                    let Ok((checked_name, health)) = rx.recv().await else { return };
+                    let current = disks.get(disk_row.selected() as usize).map(|d| d.name.as_str());
+                    if current != Some(checked_name.as_str()) {
+                        return;
+                    }
+                    let fmt = |status: HealthStatus, note: &str| match status {
+                        HealthStatus::Ok => format!("OK ({note})"),
+                        HealthStatus::Warn => format!("Warning ({note})"),
+                        HealthStatus::Unknown => format!("Unknown ({note})"),
+                    };
+                    health_label.set_text(&format!(
+                        "Structure: {} \u{b7} Hardware: {}",
+                        fmt(health.structure, &health.structure_note),
+                        fmt(health.hardware, &health.hardware_note),
+                    ));
+                });
             };
-            update_health(disk_row.selected() as usize);
-            disk_row.connect_selected_notify(move |row| update_health(row.selected() as usize));
+            update_health(disk_row_for_connect.selected() as usize);
+            disk_row_for_connect.connect_selected_notify(move |row| update_health(row.selected() as usize));
         }
 
         {
@@ -250,43 +279,85 @@ impl DisksPage {
                     (root_row_w.clone(), efi_row_w.clone(), swap_row_w.clone(), home_row_w.clone());
                 let swap_strategy_row = swap_strategy_row_outer.clone();
                 let error_root = root.clone();
+                let auto_button = button.clone();
                 dialog.connect_response(None, move |_dialog, response| {
                     if response != "continue" {
                         return;
                     }
-                    match Command::new("pkexec").arg("bash").arg(auto_partition_script()).arg(&disk).arg(layout).arg(shred_flag).output() {
-                        Ok(output) if output.status.success() => {
-                            // The freshly created swap partition has no filesystem
-                            // signature yet, so it can't be found by fstype; the
-                            // script reports its device path directly instead.
-                            let swap_partition = String::from_utf8_lossy(&output.stdout)
-                                .lines()
-                                .find_map(|line| line.strip_prefix("SWAP_PARTITION=").map(str::to_string));
 
-                            let mut state_mut = state.borrow_mut();
-                            state_mut.partitions = system_detect::get_partitions_detailed();
-                            let options = partition_options(&state_mut.partitions);
-                            drop(state_mut);
-                            for row in [&root_row_w, &efi_row_w, &swap_row_w, &home_row_w] {
-                                row.set_model(Some(&string_list(&options)));
+                    // `--shred` can mean a full zero-pass over the whole
+                    // disk (tens of minutes to hours), so this runs on a
+                    // background thread rather than blocking the GTK main
+                    // loop for the entire operation — same channel pattern
+                    // as InstallRunner. The button is disabled and
+                    // relabeled meanwhile so the app doesn't look hung and
+                    // a second click can't overlap the first.
+                    const AUTO_BUTTON_LABEL: &str = "Partition automatically";
+                    auto_button.set_sensitive(false);
+                    auto_button.set_label("Partitioning\u{2026}");
+
+                    let (tx, rx) = async_channel::bounded::<std::io::Result<std::process::Output>>(1);
+                    let disk_for_thread = disk.clone();
+                    let layout = layout.to_string();
+                    let shred_flag = shred_flag.to_string();
+                    thread::spawn(move || {
+                        let result = Command::new("pkexec")
+                            .arg("bash")
+                            .arg(auto_partition_script())
+                            .arg(&disk_for_thread)
+                            .arg(&layout)
+                            .arg(&shred_flag)
+                            .output();
+                        let _ = tx.send_blocking(result);
+                    });
+
+                    let state = state.clone();
+                    let disk = disk.clone();
+                    let (root_row_w, efi_row_w, swap_row_w, home_row_w) =
+                        (root_row_w.clone(), efi_row_w.clone(), swap_row_w.clone(), home_row_w.clone());
+                    let swap_strategy_row = swap_strategy_row.clone();
+                    let error_root = error_root.clone();
+                    let auto_button = auto_button.clone();
+                    glib::spawn_future_local(async move {
+                        let result = rx.recv().await;
+                        auto_button.set_sensitive(true);
+                        auto_button.set_label(AUTO_BUTTON_LABEL);
+
+                        match result {
+                            Ok(Ok(output)) if output.status.success() => {
+                                // The freshly created swap partition has no
+                                // filesystem signature yet, so it can't be
+                                // found by fstype; the script reports its
+                                // device path directly instead.
+                                let swap_partition = String::from_utf8_lossy(&output.stdout)
+                                    .lines()
+                                    .find_map(|line| line.strip_prefix("SWAP_PARTITION=").map(str::to_string));
+
+                                let mut state_mut = state.borrow_mut();
+                                state_mut.partitions = system_detect::get_partitions_detailed();
+                                let options = partition_options(&state_mut.partitions);
+                                drop(state_mut);
+                                for row in [&root_row_w, &efi_row_w, &swap_row_w, &home_row_w] {
+                                    row.set_model(Some(&string_list(&options)));
+                                }
+                                if let Some(swap_name) = swap_partition {
+                                    swap_strategy_row.set_selected(1);
+                                    let state_ref = state.borrow();
+                                    select_partition(&swap_row_w, &state_ref.partitions, &swap_name);
+                                }
                             }
-                            if let Some(swap_name) = swap_partition {
-                                swap_strategy_row.set_selected(1);
-                                let state_ref = state.borrow();
-                                select_partition(&swap_row_w, &state_ref.partitions, &swap_name);
+                            _ => {
+                                let error = adw::AlertDialog::builder()
+                                    .heading("Error")
+                                    .body(format!("Failed to partition {disk}."))
+                                    .build();
+                                error.add_response("ok", "OK");
+                                if let Some(root) = &error_root {
+                                    error.present(Some(root));
+                                }
                             }
                         }
-                        _ => {
-                            let error = adw::AlertDialog::builder()
-                                .heading("Error")
-                                .body(format!("Failed to partition {disk}."))
-                                .build();
-                            error.add_response("ok", "OK");
-                            if let Some(root) = &error_root {
-                                error.present(Some(root));
-                            }
-                        }
-                    }
+                    });
                 });
                 if let Some(root) = root {
                     dialog.present(Some(&root));
