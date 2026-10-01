@@ -1,5 +1,3 @@
-//! Port of `ui/pages/users.py`: hostname, user account, root account.
-
 use adw::prelude::*;
 
 use crate::ui::SysData;

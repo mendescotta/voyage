@@ -1,7 +1,3 @@
-//! `SystemDetector`: live system
-//! probing for disks, timezones, keymaps, locales, display manager, EFI
-//! and network state.
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -50,12 +46,7 @@ pub fn has_internet(timeout: Duration) -> bool {
     false
 }
 
-/// Minimal shape of `lsblk -J -o NAME,SIZE,TYPE,MODEL,FSTYPE` we need,
-/// hand-parsed to avoid pulling in a JSON dependency for one call site.
 mod lsblk_json {
-    /// Very small recursive-descent JSON parser, just enough for lsblk's
-    /// output shape (objects, arrays, strings, null, no numbers/escapes
-    /// beyond what lsblk emits).
     pub fn parse(input: &str) -> Option<Value> {
         let mut chars = input.chars().peekable();
         let value = parse_value(&mut chars)?;
@@ -130,7 +121,7 @@ mod lsblk_json {
     }
 
     fn parse_string(chars: &mut Chars) -> Option<String> {
-        chars.next(); // opening quote
+        chars.next();
         let mut s = String::new();
         loop {
             let c = chars.next()?;
@@ -153,7 +144,7 @@ mod lsblk_json {
     }
 
     fn parse_array(chars: &mut Chars) -> Option<Value> {
-        chars.next(); // '['
+        chars.next();
         let mut items = Vec::new();
         skip_ws(chars);
         if chars.peek() == Some(&']') {
@@ -173,7 +164,7 @@ mod lsblk_json {
     }
 
     fn parse_object(chars: &mut Chars) -> Option<Value> {
-        chars.next(); // '{'
+        chars.next();
         let mut fields = Vec::new();
         skip_ws(chars);
         if chars.peek() == Some(&'}') {
@@ -258,7 +249,6 @@ pub fn detect_disks() -> Vec<Disk> {
     disks
 }
 
-/// Parse an lsblk size string like `512M`, `1G`, `100K` to bytes.
 pub fn parse_size_to_bytes(size_str: &str) -> u64 {
     let size_str = size_str.trim();
     if size_str.is_empty() {
@@ -274,8 +264,6 @@ pub fn parse_size_to_bytes(size_str: &str) -> u64 {
     size_str.parse::<f64>().map(|v| v as u64).unwrap_or(0)
 }
 
-/// Flattens every disk's partitions into a single list, port of
-/// `get_partitions_detailed` in `system_utils.py`.
 pub fn get_partitions_detailed() -> Vec<PartitionDetail> {
     let mut partitions = Vec::new();
     for disk in detect_disks() {
@@ -306,10 +294,6 @@ pub struct DiskHealth {
     pub hardware_note: String,
 }
 
-/// Best-effort, non-blocking disk health check split into two independent
-/// axes so a blank new disk (no partition table yet) isn't reported as a
-/// hardware fault, and a disk with no SMART support isn't reported as
-/// structurally unsound. Never used to gate the wizard, only to inform.
 pub fn check_disk_health(disk_dev: &str) -> DiskHealth {
     let structure = check_structure(disk_dev);
     let hardware = check_hardware(disk_dev);
@@ -322,8 +306,6 @@ pub fn check_disk_health(disk_dev: &str) -> DiskHealth {
 }
 
 fn check_structure(disk_dev: &str) -> (HealthStatus, String) {
-    // -d excludes child partition rows; without it lsblk prints one PTTYPE
-    // line per partition too, which interpret_pttype also guards against.
     let output = Command::new("lsblk").args(["-dno", "PTTYPE", disk_dev]).output();
     match output {
         Ok(out) if out.status.success() => interpret_pttype(&String::from_utf8_lossy(&out.stdout)),
@@ -351,10 +333,6 @@ fn check_hardware(disk_dev: &str) -> (HealthStatus, String) {
     }
 }
 
-/// smartctl's exit status is a bitmask (man smartctl, EXIT STATUS): bits
-/// 0-2 mean it couldn't check the disk at all (bad args, can't open the
-/// device -- e.g. no permission, since Voyage's GUI runs unprivileged),
-/// bits 3-7 mean it found a real problem.
 fn interpret_smartctl(exit_code: i32, stdout: &str) -> (HealthStatus, String) {
     if exit_code & 0x07 != 0 {
         return (
@@ -525,11 +503,6 @@ mod tests {
 
     #[test]
     fn detect_timezones_falls_back_to_utc_when_missing() {
-        // /usr/share/zoneinfo is expected to exist on any real Linux box
-        // this runs on; this just checks the fallback path doesn't panic
-        // when we point somewhere nonexistent via a manual re-implementation
-        // isn't practical without refactoring for injection, so we just
-        // assert detect_timezones() returns a non-empty map on this host.
         assert!(!detect_timezones().is_empty());
     }
 
@@ -548,8 +521,6 @@ mod tests {
 
     #[test]
     fn interpret_pttype_ignores_child_partition_rows() {
-        // `lsblk -no PTTYPE <disk>` without -d prints one row per child
-        // partition too, not just the disk itself.
         let (status, note) = interpret_pttype("gpt\ngpt\ngpt\ngpt\n");
         assert_eq!(status, HealthStatus::Ok);
         assert_eq!(note, "Partition table: gpt");
@@ -564,9 +535,6 @@ mod tests {
 
     #[test]
     fn interpret_smartctl_permission_denied_is_unknown_not_warn() {
-        // Voyage's GUI runs unprivileged; smartctl exits with bit 1 set
-        // ("device open failed") when it can't read the disk, which is
-        // not evidence of a hardware problem.
         let (status, _) = interpret_smartctl(2, "");
         assert_eq!(status, HealthStatus::Unknown);
     }

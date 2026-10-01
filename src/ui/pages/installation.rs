@@ -1,6 +1,3 @@
-//! Port of `ui/pages/installation.py`: progress bar, status label, and log
-//! view driven by `InstallRunner`.
-
 use adw::prelude::*;
 use gtk::glib;
 
@@ -60,10 +57,6 @@ impl InstallationPage {
         Self { widget, status_label, progress_bar, log_view }
     }
 
-    /// Starts the (real or demo) install, calling `on_finished(success,
-    /// message)` on the main loop once it's done — mirrors
-    /// `InstallationPage.start()`, which wires `InstallRunner`'s callbacks
-    /// through `GLib.idle_add`.
     pub fn start<F>(&self, config: InstallConfig, demo: bool, on_finished: F)
     where
         F: Fn(bool, String) + 'static,

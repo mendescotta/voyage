@@ -1,7 +1,3 @@
-//! Final review/summary page shown before the install actually starts —
-//! the second-stage destructive confirmation (the disks page's
-//! auto-partition warning dialog is the first stage for that path).
-
 use adw::prelude::*;
 
 use crate::backend::config_schema::{InstallConfig, Partition};

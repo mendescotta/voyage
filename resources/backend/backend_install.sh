@@ -1,15 +1,10 @@
 #!/bin/bash
-# Installation logic extracted from void-installer
-
-# --- 1. ENVIRONMENT SETUP ---
 
 CONF_FILE="/tmp/.void-installer.conf"
 TARGETDIR="/mnt/target"
 LOG="/tmp/installation.log"
 TARGET_FSTAB=$(mktemp -t vinstall-fstab-XXXXXXXX || exit 1)
 
-# fd3 keeps a path to the real stdout so log_ui's ">>>" markers reach the
-# Python frontend even after stdout/stderr get redirected to LOG below.
 exec 3>&1
 exec > >(tee -a "$LOG") 2>&1
 
@@ -34,9 +29,6 @@ if [ -e /sys/firmware/efi/systab ]; then
     fi
 fi
 
-# Detect the live environment's init: copy_rootfs copies that same
-# environment to disk, so whatever init is detected here is what ends up
-# installed.
 if [ -x /sbin/dynamod-init ]; then
     INIT_SYSTEM="dynamod"
 elif [ -x /sbin/dinit ] || [ -x /usr/bin/dinit ]; then
@@ -44,8 +36,6 @@ elif [ -x /sbin/dinit ] || [ -x /usr/bin/dinit ]; then
 else
     INIT_SYSTEM="runit"
 fi
-
-# --- 2. UTILITY FUNCTIONS ---
 
 get_option() {
     grep -E "^${1} .*" "$CONF_FILE" | sed -e "s|^${1} ||"
@@ -57,11 +47,6 @@ enable_service() {
             ln -sf "/etc/dinit.d/$1" "$TARGETDIR/etc/dinit.d/boot.d/$1"
             ;;
         dynamod)
-            # dynamod enables services by presence in /etc/dynamod/services/,
-            # not by symlink. Services the dynamod package ships are already
-            # there; anything else this is asked to enable needs its own
-            # .toml written by the caller first -- this can't invent one
-            # from a dinit/runit service name alone.
             [ -f "$TARGETDIR/etc/dynamod/services/$1.toml" ] || \
                 echo "WARNING: no /etc/dynamod/services/$1.toml found to enable" >&2
             ;;
@@ -77,10 +62,6 @@ run_step() {
     "$@" || die "$desc failed"
 }
 
-# Retries with -t auto (signature probing) if the recorded filesystem
-# type no longer matches reality. Not used for swap (swapon takes no -t)
-# or btrfs subvolume mounts (a plain fallback there would silently mount
-# the wrong subvolume).
 MOUNTED_FSTYPE=""
 
 mount_with_fallback() {
@@ -99,24 +80,15 @@ mount_with_fallback() {
     die "Error mounting $dev on $target (tried $fstype and auto-detection)"
 }
 
-# Extra kernel cmdline dynamod needs, appended to whichever bootloader's
-# own cmdline construction is in use. rdinit= bypasses the initramfs's own
-# /init entirely and execs this path from the initramfs image as PID 1 --
-# a stock dracut-generated initramfs (dracut's own /init) doesn't contain
-# dynamod-init, so rebuild_initramfs() below replaces the dracut call with
-# one that does, for INIT_SYSTEM=dynamod.
 dynamod_cmdline_extra() {
     if [ "$INIT_SYSTEM" = "dynamod" ]; then
         printf ' rdinit=/sbin/dynamod-init init=/sbin/dynamod-init'
     fi
 }
 
-# --- 3. CORE INSTALLATION FUNCTIONS ---
-
 create_filesystems() {
     local mnts dev mntpt fstype fspassno mkfs size rv uuid
 
-    # Read MOUNTPOINT lines from the config (sorted by mount point)
     mnts=$(grep -E '^MOUNTPOINT .*' "$CONF_FILE" | sort -k 5)
 
     set -- ${mnts}
@@ -172,7 +144,6 @@ create_filesystems() {
 
                 echo "Creating BTRFS subvolumes..."
 
-                # Temporary mount without subvol
                 mount "$dev" "$TARGETDIR" || die "Error when mounting temporary BTRFS"
 
                 btrfs subvolume create "$TARGETDIR/@" || die "Error creating @"
@@ -183,9 +154,6 @@ create_filesystems() {
                     btrfs subvolume create "$TARGETDIR/@snapshots" || die "Error creating @snapshots"
                 fi
                 if [ "$swaptype" = "swapfile" ]; then
-                    # A swapfile living inside @ blocks snapshotting the
-                    # whole subvolume once swap is active; give it its
-                    # own subvolume instead.
                     btrfs subvolume create "$TARGETDIR/@swap" || die "Error creating @swap"
                 fi
 
@@ -234,7 +202,6 @@ create_filesystems() {
         fi
     done
 
-    # Mount the remaining partitions (neither root nor swap)
     set -- ${mnts}
     while [ $# -ne 0 ]; do
         dev=$2; fstype=$3; mntpt="$5"
@@ -254,8 +221,6 @@ create_filesystems() {
     done
 }
 
-# btrfs needs COW disabled on the file before it has any content, or
-# mkswap/swapon fail on it.
 setup_swapfile() {
     local root_fs mem_kib mem_mib size_mib swapfile_path
     root_fs="$(findmnt -no FSTYPE "$TARGETDIR")"
@@ -267,8 +232,6 @@ setup_swapfile() {
 
     swapfile_path="$TARGETDIR/swapfile"
     if [ "$root_fs" = "btrfs" ] && [ "$(get_option BTRFS_FLAT)" != "1" ]; then
-        # create_filesystems already created and mounted a dedicated
-        # @swap subvolume at $TARGETDIR/swap for this case.
         swapfile_path="$TARGETDIR/swap/swapfile"
     fi
 
@@ -282,10 +245,8 @@ setup_swapfile() {
     echo "${swapfile_path#$TARGETDIR} none swap defaults 0 0" >>"$TARGET_FSTAB"
 }
 
-# Copy the base system from the Live ISO (local source)
 copy_rootfs() {
     echo "Copying system files..."
-    # We use tar as-is from the original to preserve extended attributes
     tar --create --one-file-system --xattrs \
         --checkpoint=2000 --checkpoint-action=echo="Copied %{r}T files..." \
         -f - / | \
@@ -295,44 +256,23 @@ copy_rootfs() {
         die "Error copying rootfs file system"
     fi
 
-    # Post-copy live cleanup
     rm -f "$TARGETDIR/etc/motd" "$TARGETDIR/etc/issue" "$TARGETDIR/usr/sbin/void-installer"
-    # Drop the overlay's Install System shortcut from skel before
-    # set_useraccount copies it into the real user's home.
     rm -f "$TARGETDIR/etc/skel/Desktop/voyage.desktop"
-    # adduser.sh's live-session convenience rule grants the wheel group
-    # every polkit action with no authentication at all; strip it (and
-    # the matching sudoers drop-in) so the installed system isn't stuck
-    # passwordless too.
     rm -f "$TARGETDIR/etc/polkit-1/rules.d/void-live.rules" \
         "$TARGETDIR/etc/sudoers.d/99-void-live"
-    # Do not remove sddm.conf, it may hold autologin config we need
-    # Remove the live user from the target. noid-mklive's adduser.sh dracut hook
-    # writes the actual live username (default "train", overridable with the
-    # live.user cmdline arg -- see noid-mklive/dracut/vmklive/adduser.sh) to
-    # /etc/default/live.conf, which copy_rootfs just copied onto the target;
-    # read it back instead of assuming a fixed name, so the live account
-    # (home dir + its hardcoded "voidlinux" password) never survives into
-    # the installed system.
     LIVE_USERNAME=""
     if [ -f "$TARGETDIR/etc/default/live.conf" ]; then
         LIVE_USERNAME="$(. "$TARGETDIR/etc/default/live.conf"; echo "$USERNAME")"
     fi
     if [ -n "$LIVE_USERNAME" ]; then
         chroot "$TARGETDIR" userdel -r "$LIVE_USERNAME" >/dev/null 2>&1
-        # The live overlay's agetty-tty1 override autologs in as the live
-        # user (-a $LIVE_USERNAME); once that account is gone, leaving the
-        # reference in place can keep tty1 from spawning a login prompt.
         if [ -f "$TARGETDIR/etc/sv/agetty-tty1/conf" ]; then
             sed -i "s/-a $LIVE_USERNAME //" "$TARGETDIR/etc/sv/agetty-tty1/conf"
         fi
     fi
 
-    # Populate root's home with the same skel dotfiles new users get
-    # (.bashrc, .inputrc, .xinitrc, ...); nothing does this otherwise.
     cp "$TARGETDIR"/etc/skel/.[!.]* "$TARGETDIR/root/" 2>/dev/null
 
-    # Make sure the installed system doesn't have 'pam_rootok' enabled
     PAM_FILES="$TARGETDIR/etc/pam.d/su $TARGETDIR/etc/pam.d/login"
     for file in $PAM_FILES; do
         if [ -f "$file" ]; then
@@ -361,8 +301,6 @@ umount_filesystems() {
     umount -R "$TARGETDIR"
 }
 
-# --- 4. SYSTEM CONFIGURATION FUNCTIONS ---
-
 set_hostname() {
     local hostname="$(get_option HOSTNAME)"
     echo "${hostname:-void}" > "$TARGETDIR/etc/hostname"
@@ -385,12 +323,10 @@ set_keymap() {
     local KEYMAP="$(get_option KEYMAP)"
     [ -n "$KEYMAP" ] || return 0
 
-    # The identifier comes from a filename detected on the ISO.
     if [[ ! "$KEYMAP" =~ ^[A-Za-z0-9][A-Za-z0-9+._-]*$ ]]; then
         die "Invalid keyboard map: $KEYMAP"
     fi
 
-    # Void Linux applies the console keymap by reading KEYMAP from /etc/rc.conf
     install -d "$TARGETDIR/etc"
     touch "$TARGETDIR/etc/rc.conf"
     if grep -Eq '^[[:space:]]*KEYMAP[[:space:]]*=' "$TARGETDIR/etc/rc.conf"; then
@@ -399,7 +335,6 @@ set_keymap() {
         printf '\nKEYMAP=%s\n' "$KEYMAP" >> "$TARGETDIR/etc/rc.conf"
     fi
 
-    # Update vconsole.conf only if the image already uses it; don't create it on Void.
     if [ -f "$TARGETDIR/etc/vconsole.conf" ]; then
         if grep -Eq '^[[:space:]]*KEYMAP[[:space:]]*=' "$TARGETDIR/etc/vconsole.conf"; then
             sed -i -E "s|^[[:space:]]*KEYMAP[[:space:]]*=.*$|KEYMAP=$KEYMAP|" "$TARGETDIR/etc/vconsole.conf"
@@ -408,7 +343,6 @@ set_keymap() {
         fi
     fi
 
-    # Xorg/Wayland don't interpret console keymap names directly.
     local XKB_LAYOUT="$KEYMAP"
     local XKB_VARIANT=""
     case "$KEYMAP" in
@@ -445,7 +379,6 @@ Section "InputClass"
 EndSection
 EOF
 
-    # Wayland - variables for compositors based on libxkbcommon/wlroots
     install -d "$TARGETDIR/etc/profile.d" "$TARGETDIR/etc/environment.d"
     cat > "$TARGETDIR/etc/profile.d/voyage-keyboard.sh" <<EOF
 # Keyboard defaults for Wayland compositors using libxkbcommon/wlroots.
@@ -464,7 +397,6 @@ XKB_DEFAULT_OPTIONS=
 EOF
     chmod 0644 "$TARGETDIR/etc/environment.d/90-voyage-keyboard.conf"
 
-    # Display managers may start the compositor without going through profile.d
     touch "$TARGETDIR/etc/environment"
     for env_key in XKB_DEFAULT_MODEL XKB_DEFAULT_LAYOUT XKB_DEFAULT_VARIANT XKB_DEFAULT_OPTIONS; do
         case "$env_key" in
@@ -480,7 +412,6 @@ EOF
         fi
     done
 
-    # GNOME/Mutter keeps the keyboard in GSettings and doesn't use Xorg or the variables
     install -d "$TARGETDIR/etc/xdg/autostart" "$TARGETDIR/usr/libexec"
     cat > "$TARGETDIR/usr/libexec/voyage-wayland-keyboard" <<EOF
 #!/bin/sh
@@ -507,7 +438,6 @@ X-GNOME-Autostart-enabled=true
 EOF
     chmod 0644 "$TARGETDIR/etc/xdg/autostart/voyage-wayland-keyboard.desktop"
 
-    # KDE Plasma - kxkbrc in skel for new users
     install -d "$TARGETDIR/etc/skel/.config"
     cat > "$TARGETDIR/etc/skel/.config/kxkbrc" <<EOF
 [Layout]
@@ -558,7 +488,6 @@ set_useraccount() {
     fi
 }
 
-# Configures automatic login on the supported display manager.
 set_autologin() {
     local enabled="$(get_option AUTOLOGIN)"
     local manager="$(get_option DISPLAYMANAGER)"
@@ -566,8 +495,6 @@ set_autologin() {
 
     [ "$enabled" = "1" ] || return 0
 
-    # Autologin is useless if the display manager itself never starts at
-    # boot -- the installer never enables it anywhere else, so do it here.
     case "$manager" in
         sddm|lightdm|gdm)
             enable_service "$manager"
@@ -627,7 +554,6 @@ EOF
 
 declare -A MIRRORS
 
-# Format: ["logical-name"]="URL"
 MIRRORS["Default"]="https://repo-default.voidlinux.org/"
 MIRRORS["Finland"]="https://repo-fi.voidlinux.org/"
 MIRRORS["Germany"]="https://repo-de.voidlinux.org/"
@@ -638,7 +564,6 @@ set_mirror() {
     local MIRROR_KEY="$(get_option MIRROR)"
     local MIRROR_URL=${MIRRORS[$MIRROR_KEY]}
 
-    # Only configure a mirror if it's not the local ISO
     if [[ "$MIRROR_KEY" != "Local" ]] && [[ -n "$MIRROR_URL" ]]; then
         echo "Configuring mirror..."
         log_ui "MIRROR"        
@@ -654,7 +579,6 @@ update_system() {
     echo "Downloading system updates..."
     log_ui "UPDATE_DOWNLOAD"
 
-    # First phase: download to cache, without installing yet.
     if ! chroot "$TARGETDIR" xbps-install -Suy -d; then
         die "Error downloading system updates"
     fi
@@ -718,7 +642,7 @@ install_intel_microcodes() {
 }
 
 install_extra_software() {
-    local update=$(get_option UPDATE)   # GUI checkbox
+    local update=$(get_option UPDATE)
     local nonfree=$(get_option NONFREE)
     local nvidia=$(get_option NVIDIA)
     local intel=$(get_option INTEL)
@@ -742,9 +666,6 @@ install_extra_software() {
     fi
 }
 
-# Root device/UUID and detected kernel version, shared by the limine and
-# refind installers (grub-mkconfig works this out on its own via
-# /etc/grub.d/10_linux, so install_grub doesn't need these).
 root_partition_dev() {
     grep -E '^MOUNTPOINT .*' "$CONF_FILE" | awk '$5 == "/" {print $2}'
 }
@@ -765,7 +686,6 @@ ensure_package() {
 install_grub() {
     local dev="$1" grub_args=""
 
-    # GRUB branding is configured exclusively in /etc/default/grub.
     install -d "$TARGETDIR/etc/default"
     if [ -f "$TARGETDIR/etc/default/grub" ]; then
         if grep -q '^GRUB_DISTRIBUTOR=' "$TARGETDIR/etc/default/grub"; then
@@ -781,9 +701,6 @@ install_grub() {
         grub_args="--target=$EFI_TARGET --efi-directory=/boot/efi --bootloader-id=Void --recheck"
     fi
 
-    # grub-mkconfig's own /etc/grub.d/10_linux builds the cmdline from
-    # GRUB_CMDLINE_LINUX_DEFAULT -- set it before generating grub.cfg
-    # rather than patching the generated file after the fact.
     local extra_cmdline
     extra_cmdline="$(dynamod_cmdline_extra)"
     if [ -n "$extra_cmdline" ]; then
@@ -802,10 +719,6 @@ install_grub() {
 install_limine() {
     local kver root_uuid esp_dir
 
-    # Recent Limine dropped ext2/3/4 (and never supported btrfs) for reading
-    # its own config/kernel/initramfs, so those must live on a FAT32
-    # partition. Voyage only has one to offer: the EFI System Partition -- so
-    # Limine is EFI-only here, with everything placed at the ESP's root.
     [ -n "$EFI_SYSTEM" ] || die "Limine requires an EFI system partition"
 
     ensure_package limine
@@ -844,11 +757,6 @@ install_refind() {
 
     local refind_dir="$TARGETDIR/boot/efi/EFI/refind"
 
-    # refind-install only writes its default refind.conf when one isn't
-    # already there; on a disk/ESP reused across install attempts, a
-    # stale refind.conf (in our case, a previous run's own one-line
-    # include-only file) makes it skip that step entirely. Remove it
-    # first so every install run gets a real default config.
     rm -f "$refind_dir/refind.conf"
 
     chroot "$TARGETDIR" refind-install --usedefault "$esp_dev" || die "Error installing rEFInd"
@@ -862,8 +770,6 @@ install_refind() {
         echo "WARNING: RONBM theme not found at $theme_src, rEFInd will use its default theme"
     fi
 
-    # initrd= path is relative to the filesystem root, not /boot, since
-    # /boot is never its own mountpoint here -- needs the /boot/ prefix.
     local extra_cmdline
     extra_cmdline="$(dynamod_cmdline_extra)"
     cat > "$TARGETDIR/boot/refind_linux.conf" <<EOF
@@ -877,11 +783,6 @@ set_bootloader() {
 
     if [ "$dev" = "none" ] || [ -z "$dev" ]; then return; fi
 
-    # grub is a hard `depends` of the voyage package itself
-    # (needed regardless of which bootloader the user ends up picking),
-    # so it's always present on the target here. Remove whichever
-    # bootloader packages weren't chosen so their kernel hooks (grub.cfg
-    # regeneration, etc.) don't keep firing for the rest of the install.
     case "${bl_type:-grub}" in
         limine) install_limine; chroot "$TARGETDIR" xbps-pkgdb -m manual limine
                 chroot "$TARGETDIR" xbps-remove -y grub refind 2>/dev/null || true ;;
@@ -892,9 +793,6 @@ set_bootloader() {
     esac
 }
 
-# --- 5. MAIN ORCHESTRATION ---
-
-# Preliminary validations
 if [ "$(id -u)" != "0" ]; then
     echo "This script must be run as root." >&2
     exit 1
@@ -907,18 +805,15 @@ fi
 log_ui "INIT"
 echo "Log started at $LOG"
 
-# Step 1: Disks
 log_ui "CREATE_FS"
 create_filesystems
 if [ "$(get_option SWAPTYPE)" = "swapfile" ]; then
     setup_swapfile
 fi
 
-# Step 2: Base install
 log_ui "COPY"
 copy_rootfs
 
-# Step 3: Configuration
 log_ui "REGIONAL_CONFIG"
 mount_filesystems
 install -Dm644 "$TARGET_FSTAB" "$TARGETDIR/etc/fstab"
@@ -930,21 +825,11 @@ set_locale
 set_timezone
 set_hostname
 
-# Mirrors and proprietary drivers
 set_mirror
 install_extra_software
 
-# Rebuild the initramfs for the target now that any extra drivers
-# (nvidia/intel) are in place -- the live ISO's initramfs was built for
-# the live environment's hardware, not necessarily the install target's.
 echo "Rebuilding initramfs for the target system..."
 if [ "$INIT_SYSTEM" = "dynamod" ]; then
-    # rdinit= bypasses dracut's own /init entirely -- a stock
-    # dracut-generated initramfs never contains dynamod-init, so build a
-    # cpio image with it directly instead, at the same
-    # initramfs-<kver>.img path dracut would have used (every bootloader
-    # function above already looks for that exact filename, so nothing
-    # else needs to change to find it).
     kver="$(kernel_version)"
     [ -n "$kver" ] || die "No kernel image found in $TARGETDIR/boot to rebuild the initramfs for"
     initramfs_dir="$(mktemp -d)"
@@ -970,11 +855,9 @@ set_useraccount
 set_autologin
 set_default_shell
 
-# Step 4: Bootloader
 log_ui "GRUB_INSTALL"
 set_bootloader
 
-# Step 5: Finish
 echo "Removing the installer and orphaned packages/cache..."
 chroot "$TARGETDIR" xbps-remove -ROoy voyage xmirror dialog xtools-minimal
 

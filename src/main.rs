@@ -41,7 +41,5 @@ fn main() -> glib::ExitCode {
         window.present();
     });
 
-    // We parse --demo ourselves above; run with no args so GApplication's
-    // own option parser doesn't reject it as unknown.
     app.run_with_args::<&str>(&[])
 }

@@ -1,6 +1,3 @@
-//! Port of `ui/pages/disks.py`: disk/partition selection, auto-partition,
-//! GParted launch, filesystem and bootloader choice.
-
 use std::cell::RefCell;
 use std::process::Command;
 use std::rc::Rc;
@@ -191,13 +188,6 @@ impl DisksPage {
             let disk_row = page.disk_row.clone();
             let disks = page.state.borrow().disks.clone();
             let health_label = health_label.clone();
-            // `smartctl -H` can take several seconds on a spun-down or slow
-            // USB disk, so the check runs on a background thread (mirroring
-            // InstallRunner's channel pattern) rather than blocking the GTK
-            // main loop on every disk-row selection change. A late result
-            // for a disk the user has since clicked away from is dropped by
-            // comparing against the row's *current* selection when it
-            // arrives, not the selection at the time the check started.
             let disk_row_for_connect = disk_row.clone();
             let update_health = move |index: usize| {
                 let Some(disk) = disks.get(index) else { return };
@@ -285,13 +275,6 @@ impl DisksPage {
                         return;
                     }
 
-                    // `--shred` can mean a full zero-pass over the whole
-                    // disk (tens of minutes to hours), so this runs on a
-                    // background thread rather than blocking the GTK main
-                    // loop for the entire operation — same channel pattern
-                    // as InstallRunner. The button is disabled and
-                    // relabeled meanwhile so the app doesn't look hung and
-                    // a second click can't overlap the first.
                     const AUTO_BUTTON_LABEL: &str = "Partition automatically";
                     auto_button.set_sensitive(false);
                     auto_button.set_label("Partitioning\u{2026}");
@@ -325,10 +308,6 @@ impl DisksPage {
 
                         match result {
                             Ok(Ok(output)) if output.status.success() => {
-                                // The freshly created swap partition has no
-                                // filesystem signature yet, so it can't be
-                                // found by fstype; the script reports its
-                                // device path directly instead.
                                 let swap_partition = String::from_utf8_lossy(&output.stdout)
                                     .lines()
                                     .find_map(|line| line.strip_prefix("SWAP_PARTITION=").map(str::to_string));
@@ -405,9 +384,6 @@ impl DisksPage {
         self.auto_select();
     }
 
-    /// Conservative auto-selection, matching `_auto_select` in disks.py:
-    /// EFI -> smallest vfat, swap -> fstype swap, root -> largest
-    /// remaining, home -> second largest.
     fn auto_select(&self) {
         let state = self.state.borrow();
         let efi_parts: Vec<&PartitionDetail> =

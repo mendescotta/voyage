@@ -1,5 +1,3 @@
-//! Port of `ui/pages/welcome.py`: locale, timezone and keymap selection.
-
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -148,8 +146,6 @@ impl WelcomePage {
         Self { widget, locale_row, region_row, city_row, keymap_row, inner }
     }
 
-    /// Port of `WelcomePage.collect()`: never returns validation errors —
-    /// the combo rows always have a valid selection.
     pub fn collect(&self) -> (WelcomeFields, Vec<(String, String)>) {
         let inner = self.inner.borrow();
         let region = inner.regions[self.region_row.selected() as usize].clone();

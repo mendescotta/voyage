@@ -1,8 +1,3 @@
-//! `InstallRunner`: writes the conf
-//! file, spawns `pkexec bash backend_install.sh`, and turns its `>>> TOKEN`
-//! stdout lines into progress/status/log events — or replays a scripted
-//! demo sequence when `demo` is set.
-
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::OpenOptionsExt;
@@ -52,15 +47,9 @@ const DEMO_STEPS: &[(&str, u8, u64)] = &[
 ];
 
 fn escape_conf_value(value: &str) -> String {
-    // backend_install.sh reads `KEY value` lines with a plain grep/sed, and
-    // values here (paths, hostnames, passwords) are not expected to contain
-    // newlines; we only guard against a literal newline breaking the
-    // line-oriented format.
     value.replace('\n', " ")
 }
 
-/// Writes `/tmp/.void-installer.conf` in the `KEY value` / `MOUNTPOINT ...`
-/// format `backend_install.sh` expects, mode 0600.
 pub fn generate_conf_file(config: &InstallConfig, conf_file: &str) -> std::io::Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
@@ -97,9 +86,6 @@ pub fn generate_conf_file(config: &InstallConfig, conf_file: &str) -> std::io::R
     }
 
     for part in &config.partitions {
-        // MOUNTPOINT dev fs size point format — "size" is unused by
-        // backend_install.sh's actual partitioning (kept as "0G" the way
-        // install_runner.py always did) and format is "1"/"0".
         writeln!(
             file,
             "MOUNTPOINT {} {} 0G {} {}",
@@ -130,20 +116,11 @@ impl InstallRunner {
         }
     }
 
-    /// Not wired to any UI control yet — `install_runner.py` exposes the
-    /// same method unused by `window.py` today; kept for parity and future
-    /// cancel-button support.
     #[allow(dead_code)]
     pub fn request_interruption(&self) {
         self.interrupted.store(true, Ordering::SeqCst);
     }
 
-    /// Spawns a background thread that runs the install (or demo
-    /// simulation) and sends `InstallEvent`s to `on_event`. `on_event` is
-    /// called from the background thread — callers are expected to
-    /// marshal it back to the GTK main loop themselves (e.g. via a
-    /// `glib::MainContext` channel), since this module has no GTK
-    /// dependency.
     pub fn start<F>(self, on_event: F) -> thread::JoinHandle<()>
     where
         F: Fn(InstallEvent) + Send + Sync + 'static,

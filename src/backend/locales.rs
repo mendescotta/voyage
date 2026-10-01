@@ -1,8 +1,3 @@
-//! Readable display names for ISO-639
-//! language codes and kbd keymap codes.
-
-/// Returns a readable language name from the ISO-639 code, or the code
-/// itself if unknown.
 pub fn language_name(code: &str) -> String {
     LANGUAGES
         .iter()
@@ -11,8 +6,6 @@ pub fn language_name(code: &str) -> String {
         .unwrap_or_else(|| code.to_string())
 }
 
-/// Returns a readable layout name from the kbd code, or the code itself if
-/// unknown.
 pub fn keymap_name(code: &str) -> String {
     KEYMAPS
         .iter()
@@ -21,9 +14,6 @@ pub fn keymap_name(code: &str) -> String {
         .unwrap_or_else(|| code.to_string())
 }
 
-/// True if `code` has a known display name (used to filter the raw keymap
-/// list down to ones we can label sensibly, same as the Python
-/// `detect_keymaps` filter: `KeymapName(k) != k`).
 pub fn has_known_keymap_name(code: &str) -> bool {
     keymap_name(code) != code
 }

@@ -1,5 +1,3 @@
-//! Port of `ui/pages/mirrors.py`: mirror choice and driver/nonfree toggles.
-
 use adw::prelude::*;
 
 use crate::ui::SysData;

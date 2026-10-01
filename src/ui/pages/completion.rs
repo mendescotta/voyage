@@ -1,6 +1,3 @@
-//! Port of `ui/pages/completion.py`: final success/failure screen with a
-//! "View Log" dialog.
-
 use std::fs;
 
 use adw::prelude::*;

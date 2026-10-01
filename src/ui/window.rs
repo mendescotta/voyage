@@ -1,6 +1,3 @@
-//! Port of `ui/window.py`'s `MainWindow`: wizard shell — sidebar step
-//! list, page stack, Back/Next navigation, install orchestration.
-
 use std::cell::RefCell;
 use std::rc::Rc;
 

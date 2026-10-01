@@ -10,8 +10,6 @@ if [ -z "$DISK" ]; then
     exit 1
 fi
 
-# Confirm EFI (same check as backend_install.sh, so the partition table
-# type created here always matches the grub-install target chosen later)
 EFI=0
 if [ -e /sys/firmware/efi/systab ]; then
     EFI=1
@@ -35,17 +33,11 @@ partition_dev() {
     esac
 }
 
-# A disk previously used for LVM can leave active device-mapper nodes
-# that make sgdisk/wipefs behave unpredictably after the partition table
-# is wiped. Guarded by `command -v` so it's a no-op without lvm2.
 close_stale_lvm() {
     local disk="$1" pv vg
     command -v vgchange >/dev/null 2>&1 || return 0
     vgscan --mknodes >/dev/null 2>&1 || true
     pvscan --cache >/dev/null 2>&1 || true
-    # TYPE=lvm on a partition's lsblk row is the mapped logical volume
-    # device, not the physical volume -- pvs needs the partition itself,
-    # found by FSTYPE=LVM2_member.
     for pv in $(lsblk -lnpo NAME,FSTYPE "$disk" 2>/dev/null | awk '$2=="LVM2_member"{print $1}'); do
         vg="$(pvs --noheadings -o vg_name "$pv" 2>/dev/null | tr -d ' ')"
         if [ -n "$vg" ]; then
@@ -61,7 +53,6 @@ if [ "$SHRED" = "--shred" ]; then
     shred -n0 -z "$DISK" || echo "WARNING: shred failed on $DISK, continuing with partitioning anyway" >&2
 fi
 
-# Warning: wipes EVERYTHING on the disk
 sgdisk --zap-all "$DISK"
 
 if [ "$LAYOUT" = "with-swap" ]; then

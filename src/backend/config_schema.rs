@@ -1,9 +1,3 @@
-//! Field validation and assembly of
-//! the install configuration handed to `install_runner`.
-//!
-//! Kept free of GTK types so it's plain, unit-testable Rust — the UI layer
-//! only ever calls `build_config`.
-
 use std::process::Command;
 
 const BIOS_BOOT_PARTTYPE_GUID: &str = "21686148-6449-6e6f-744e-656f656e7451";
@@ -23,12 +17,9 @@ pub struct Partition {
     pub dev: String,
     pub point: String,
     pub fs: String,
-    /// Whether the partition should be formatted ("1") or left as-is ("0"),
-    /// matching `backend_install.sh`'s `MOUNTPOINT ... format` field.
     pub format: bool,
 }
 
-/// Everything the wizard pages collect before the install/disks step.
 #[derive(Debug, Default, Clone)]
 pub struct InstallFields {
     pub locale: String,
@@ -48,7 +39,6 @@ pub struct InstallFields {
     pub intel: bool,
 }
 
-/// Fully validated, ready-to-serialize install configuration.
 #[derive(Debug, Clone)]
 pub struct InstallConfig {
     pub locale: String,
@@ -103,11 +93,7 @@ fn username_valid(username: &str) -> bool {
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
 }
 
-/// Pure parse of `lsblk` output: true if the disk is GPT-partitioned but
-/// has no BIOS Boot partition among the given partition type GUIDs.
 fn gpt_without_bios_boot_from_lsblk(pttype: &str, parttypes: &[String]) -> bool {
-    // Only the disk's own PTTYPE line matters here; without `-d`, lsblk
-    // also prints one line per child partition.
     if pttype.lines().next().unwrap_or("").trim() != "gpt" {
         return false;
     }
@@ -141,9 +127,6 @@ fn is_gpt_without_bios_boot(disk_dev: &str) -> bool {
     gpt_without_bios_boot_from_lsblk(&pttype, &parttypes)
 }
 
-/// Strips the trailing partition number from a partition device path to
-/// get its parent disk, e.g. `/dev/sda1` -> `/dev/sda`,
-/// `/dev/nvme0n1p2` -> `/dev/nvme0n1`.
 fn bootloader_disk(root_dev: &str) -> String {
     let trimmed = root_dev.trim_end_matches(|c: char| c.is_ascii_digit());
     if trimmed.contains("nvme") && trimmed.ends_with('p') {
@@ -245,12 +228,6 @@ pub fn build_partitions(
     }
 }
 
-/// Consolidates every static and disk-dependent rule about which
-/// bootloader can be installed given the chosen EFI/BIOS mode and target
-/// disk. Not a full filesystem-compatibility matrix: Voyage's
-/// limine/refind install functions stage the kernel/initramfs on the EFI
-/// System Partition and never read the root filesystem, so there is no
-/// bootloader/root-filesystem coupling to encode here.
 fn validate_bootloader_choice(disk: &DiskChoices) -> Result<(), FieldError> {
     if matches!(disk.bootloader_type.as_str(), "limine" | "refind") && !disk.want_efi {
         let name = if disk.bootloader_type == "limine" { "Limine" } else { "rEFInd" };
@@ -346,8 +323,6 @@ pub fn build_config(
 
     let partitions = build_partitions(&disk.raw_parts, &disk.filesystem, disk.want_efi, disk.swap_strategy)?;
 
-    // Root is guaranteed present here: build_partitions only succeeds when
-    // raw_parts.root is Some.
     let root_dev = disk.raw_parts.root.as_ref().unwrap();
     let disk_dev = bootloader_disk(root_dev);
 
@@ -467,10 +442,6 @@ mod tests {
 
     #[test]
     fn gpt_without_bios_boot_detects_missing_partition_with_multiline_pttype() {
-        // `lsblk -no PTTYPE <disk>` without -d prints one "gpt" line per
-        // child partition too, not just the disk itself -- a disk with a
-        // selected root partition always has at least one child, so this
-        // is the common case, not an edge case.
         let parttypes = vec!["c12a7328-f81f-11d2-ba4b-00a0c93ec93b".to_string()];
         assert!(gpt_without_bios_boot_from_lsblk("gpt\ngpt\ngpt\n", &parttypes));
     }
