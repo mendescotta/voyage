@@ -40,10 +40,12 @@ struct State {
     window: adw::ApplicationWindow,
 }
 
-/// Setup pages can be taller than the window, so each one scrolls vertically.
+/// Setup pages can be taller than the window, so each one scrolls vertically,
+/// with a scrollbar that stays visible (overlay scrollbars hide until hovered).
 fn scrollable(page: &gtk::Box) -> gtk::ScrolledWindow {
     gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
+        .overlay_scrolling(false)
         .vexpand(true)
         .child(page)
         .build()
