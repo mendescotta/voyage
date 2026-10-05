@@ -245,6 +245,33 @@ setup_swapfile() {
     echo "${swapfile_path#$TARGETDIR} none swap defaults 0 0" >>"$TARGET_FSTAB"
 }
 
+# The live hook (vmklive display-manager-autologin.sh) enables autologin for the
+# live user, and copy_rootfs copies that into the target. lightdm reads
+# lightdm.conf after lightdm.conf.d, so a leftover live value would override the
+# user chosen in the installer; undo the live settings before set_autologin.
+reset_live_autologin() {
+    local live="$1" conf
+    [ -n "$live" ] || return 0
+
+    conf="$TARGETDIR/etc/lightdm/lightdm.conf"
+    if [ -f "$conf" ] && grep -q "^autologin-user=${live}\$" "$conf"; then
+        sed -i -e "s|^autologin-user=${live}\$|#autologin-user=|" \
+            -e "s|^autologin-user-timeout=.*|#autologin-user-timeout=|" "$conf"
+    fi
+
+    for conf in "$TARGETDIR/etc/gdm/custom.conf" "$TARGETDIR/etc/gdm3/custom.conf"; do
+        if [ -f "$conf" ] && grep -q "^AutomaticLogin=${live}\$" "$conf"; then
+            sed -i -e "/^AutomaticLogin=${live}\$/d" \
+                -e "s|^AutomaticLoginEnable=.*|AutomaticLoginEnable=false|" "$conf"
+        fi
+    done
+
+    conf="$TARGETDIR/etc/sddm.conf"
+    if [ -f "$conf" ] && grep -q "^User=${live}\$" "$conf"; then
+        rm -f "$conf"
+    fi
+}
+
 copy_rootfs() {
     echo "Copying system files..."
     tar --create --one-file-system --xattrs \
@@ -266,6 +293,7 @@ copy_rootfs() {
     fi
     if [ -n "$LIVE_USERNAME" ]; then
         chroot "$TARGETDIR" userdel -r "$LIVE_USERNAME" >/dev/null 2>&1
+        reset_live_autologin "$LIVE_USERNAME"
         if [ -f "$TARGETDIR/etc/sv/agetty-tty1/conf" ]; then
             sed -i "s/-a $LIVE_USERNAME //" "$TARGETDIR/etc/sv/agetty-tty1/conf"
         fi
