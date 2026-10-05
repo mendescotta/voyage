@@ -1,5 +1,5 @@
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -190,7 +190,7 @@ impl InstallRunner {
             }
         };
 
-        for line in reader.lines() {
+        for line in super::text::lossy_lines(reader) {
             let Ok(line) = line else { break };
             let clean_line = line.trim();
             if !clean_line.starts_with(">>>") {

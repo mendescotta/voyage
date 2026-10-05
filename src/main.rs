@@ -11,9 +11,9 @@ use backend::system_detect;
 use ui::SysData;
 
 fn load_theme() {
-    let css_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/style.css");
+    adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
     let provider = gtk::CssProvider::new();
-    provider.load_from_path(&css_path);
+    provider.load_from_string(ui::STYLE_CSS);
     if let Some(display) = gdk::Display::default() {
         gtk::style_context_add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     }

@@ -552,6 +552,17 @@ EOF
     esac
 }
 
+INSTALLER_ONLY_PKGS="voyage xmirror dialog xtools-minimal"
+
+remove_installer_packages() {
+    local pkg installed=""
+    for pkg in $INSTALLER_ONLY_PKGS; do
+        chroot "$TARGETDIR" xbps-query "$pkg" >/dev/null 2>&1 && installed="$installed $pkg"
+    done
+    [ -n "$installed" ] || return 0
+    chroot "$TARGETDIR" xbps-remove -ROoy $installed
+}
+
 declare -A MIRRORS
 
 MIRRORS["Default"]="https://repo-default.voidlinux.org/"
@@ -859,7 +870,7 @@ log_ui "GRUB_INSTALL"
 set_bootloader
 
 echo "Removing the installer and orphaned packages/cache..."
-chroot "$TARGETDIR" xbps-remove -ROoy voyage xmirror dialog xtools-minimal
+remove_installer_packages
 
 log_ui "FINISH"
 sync

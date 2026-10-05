@@ -1,4 +1,3 @@
-use std::fs;
 
 use adw::prelude::*;
 
@@ -54,7 +53,7 @@ impl CompletionPage {
 
         let page_widget = widget.clone();
         log_button.connect_clicked(move |_| {
-            let content = fs::read_to_string(LOG_PATH)
+            let content = crate::backend::text::read_text_lossy(std::path::Path::new(LOG_PATH))
                 .unwrap_or_else(|e| format!("Could not read {LOG_PATH}: {e}"));
 
             let text_view = gtk::TextView::builder().editable(false).monospace(true).build();

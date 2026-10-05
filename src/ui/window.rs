@@ -40,6 +40,15 @@ struct State {
     window: adw::ApplicationWindow,
 }
 
+/// Setup pages can be taller than the window, so each one scrolls vertically.
+fn scrollable(page: &gtk::Box) -> gtk::ScrolledWindow {
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(page)
+        .build()
+}
+
 pub fn build(app: &adw::Application, sys_data: SysData, demo: bool) -> adw::ApplicationWindow {
     let window = adw::ApplicationWindow::builder()
         .application(app)
@@ -57,11 +66,11 @@ pub fn build(app: &adw::Application, sys_data: SysData, demo: bool) -> adw::Appl
     let completion = CompletionPage::new();
 
     let stack = gtk::Stack::new();
-    stack.add_titled(&welcome.widget, Some(pages::welcome::TITLE), pages::welcome::TITLE);
-    stack.add_titled(&mirrors.widget, Some(pages::mirrors::TITLE), pages::mirrors::TITLE);
-    stack.add_titled(&users.widget, Some(pages::users::TITLE), pages::users::TITLE);
-    stack.add_titled(&disks.widget, Some(pages::disks::TITLE), pages::disks::TITLE);
-    stack.add_titled(&review.widget, Some(pages::review::TITLE), pages::review::TITLE);
+    stack.add_titled(&scrollable(&welcome.widget), Some(pages::welcome::TITLE), pages::welcome::TITLE);
+    stack.add_titled(&scrollable(&mirrors.widget), Some(pages::mirrors::TITLE), pages::mirrors::TITLE);
+    stack.add_titled(&scrollable(&users.widget), Some(pages::users::TITLE), pages::users::TITLE);
+    stack.add_titled(&scrollable(&disks.widget), Some(pages::disks::TITLE), pages::disks::TITLE);
+    stack.add_titled(&scrollable(&review.widget), Some(pages::review::TITLE), pages::review::TITLE);
     stack.add_titled(&installation.widget, Some(pages::installation::TITLE), pages::installation::TITLE);
     stack.add_titled(&completion.widget, Some(pages::completion::TITLE), pages::completion::TITLE);
 
