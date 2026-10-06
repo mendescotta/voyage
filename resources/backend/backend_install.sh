@@ -784,6 +784,31 @@ TIMEOUT=5
 EOF
 }
 
+# Leave a copy of the install log on the new user's desktop.
+copy_log_to_desktop() {
+    local login uid gid desktop
+    login="$(get_option USERLOGIN)"
+    [ -n "$login" ] || return 0
+    uid="$(chroot "$TARGETDIR" id -u "$login" 2>/dev/null)" || return 0
+    gid="$(chroot "$TARGETDIR" id -g "$login" 2>/dev/null)" || return 0
+    desktop="$TARGETDIR/home/$login/Desktop"
+    install -d -o "$uid" -g "$gid" "$desktop" &&
+        install -m 644 -o "$uid" -g "$gid" "$LOG" "$desktop/installation.log" ||
+        echo "WARNING: could not copy the install log to $desktop" >&2
+}
+
+# Print the ESP directory holding the refind.conf that refind-install just wrote.
+refind_install_dir() {
+    local esp_efi="$1" dir
+    for dir in "$esp_efi/BOOT" "$esp_efi/refind"; do
+        if [ -f "$dir/refind.conf" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+
 install_refind() {
     local root_uuid esp_dev
 
@@ -794,11 +819,16 @@ install_refind() {
     esp_dev="$(esp_partition_dev)"
     [ -n "$esp_dev" ] || die "No EFI system partition found for rEFInd"
 
-    local refind_dir="$TARGETDIR/boot/efi/EFI/refind"
+    local esp_efi="$TARGETDIR/boot/efi/EFI"
 
-    rm -f "$refind_dir/refind.conf"
+    rm -f "$esp_efi/refind/refind.conf" "$esp_efi/BOOT/refind.conf"
 
     chroot "$TARGETDIR" refind-install --usedefault "$esp_dev" || die "Error installing rEFInd"
+
+    # --usedefault puts rEFInd (and its refind.conf) in EFI/BOOT, a plain install in EFI/refind:
+    # the theme must go next to the refind.conf that rEFInd will actually read.
+    local refind_dir
+    refind_dir="$(refind_install_dir "$esp_efi")" || die "rEFInd installed but no refind.conf was found on the ESP"
 
     local theme_src="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/refind-theme/RONBM"
     if [ -d "$theme_src" ]; then
@@ -915,6 +945,7 @@ sync
 install -d "$TARGETDIR/var/log"
 cp "$LOG" "$TARGETDIR/var/log/voyage-install.log" 2>/dev/null || \
     echo "WARNING: could not copy install log into the target system" >&2
+copy_log_to_desktop
 umount_filesystems
 rm -f "$TARGET_FSTAB"
 

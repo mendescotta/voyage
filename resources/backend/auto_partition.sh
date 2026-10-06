@@ -66,17 +66,22 @@ if [ $EFI -eq 1 ]; then
         sgdisk -n 2:0:+"${swap_mib}"M -t 2:8200 "$DISK"
         sgdisk -n 3:0:0 -t 3:8300 "$DISK"
         echo "SWAP_PARTITION=$(partition_dev "$DISK" 2)"
+        echo "ROOT_PARTITION=$(partition_dev "$DISK" 3)"
     else
         sgdisk -n 2:0:0 -t 2:8300 "$DISK"
+        echo "ROOT_PARTITION=$(partition_dev "$DISK" 2)"
     fi
+    echo "EFI_PARTITION=$(partition_dev "$DISK" 1)"
 else
     parted -s "$DISK" mklabel msdos
     if [ "$LAYOUT" = "with-swap" ]; then
         parted -s "$DISK" mkpart primary linux-swap 1MiB "${swap_mib}MiB"
         parted -s "$DISK" mkpart primary "${swap_mib}MiB" 100%
         echo "SWAP_PARTITION=$(partition_dev "$DISK" 1)"
+        echo "ROOT_PARTITION=$(partition_dev "$DISK" 2)"
     else
         parted -s "$DISK" mkpart primary 1MiB 100%
+        echo "ROOT_PARTITION=$(partition_dev "$DISK" 1)"
     fi
 fi
 

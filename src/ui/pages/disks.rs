@@ -266,9 +266,10 @@ impl DisksPage {
 
                         match result {
                             Ok(Ok(output)) if output.status.success() => {
-                                let swap_partition = String::from_utf8_lossy(&output.stdout)
-                                    .lines()
-                                    .find_map(|line| line.strip_prefix("SWAP_PARTITION=").map(str::to_string));
+                                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                                let created = |key: &str| partition_from_output(&stdout, key);
+                                let (swap_partition, root_partition, efi_partition) =
+                                    (created("SWAP_PARTITION"), created("ROOT_PARTITION"), created("EFI_PARTITION"));
 
                                 let mut state_mut = state.borrow_mut();
                                 state_mut.partitions = system_detect::get_partitions_detailed();
@@ -277,9 +278,15 @@ impl DisksPage {
                                 for row in [&root_row_w, &efi_row_w, &swap_row_w, &home_row_w] {
                                     row.set_items(&options);
                                 }
+                                let state_ref = state.borrow();
+                                if let Some(root_name) = root_partition {
+                                    select_partition(&root_row_w, &state_ref.partitions, &root_name);
+                                }
+                                if let Some(efi_name) = efi_partition {
+                                    select_partition(&efi_row_w, &state_ref.partitions, &efi_name);
+                                }
                                 if let Some(swap_name) = swap_partition {
                                     swap_strategy_row.set_selected(1);
-                                    let state_ref = state.borrow();
                                     select_partition(&swap_row_w, &state_ref.partitions, &swap_name);
                                 }
                             }
@@ -389,6 +396,12 @@ impl DisksPage {
     }
 }
 
+/// Value of a `KEY=/dev/...` line printed by auto_partition.sh.
+fn partition_from_output(stdout: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}=");
+    stdout.lines().find_map(|line| line.strip_prefix(&prefix).map(str::to_string))
+}
+
 fn partition_options(partitions: &[PartitionDetail]) -> Vec<String> {
     let mut options = vec!["(none)".to_string()];
     options.extend(partitions.iter().map(|p| p.display.clone()));
@@ -398,5 +411,19 @@ fn partition_options(partitions: &[PartitionDetail]) -> Vec<String> {
 fn select_partition(row: &ComboRow, partitions: &[PartitionDetail], name: &str) {
     if let Some(index) = partitions.iter().position(|p| p.name == name) {
         row.set_selected((index + 1) as u32);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::partition_from_output;
+
+    #[test]
+    fn reads_created_partitions_from_the_script_output() {
+        let out = "Securely erasing...\nSWAP_PARTITION=/dev/sda2\nROOT_PARTITION=/dev/sda3\nEFI_PARTITION=/dev/sda1\nAutomatic partitioning completed on /dev/sda (with-swap layout)\n";
+        assert_eq!(partition_from_output(out, "ROOT_PARTITION").as_deref(), Some("/dev/sda3"));
+        assert_eq!(partition_from_output(out, "EFI_PARTITION").as_deref(), Some("/dev/sda1"));
+        assert_eq!(partition_from_output(out, "SWAP_PARTITION").as_deref(), Some("/dev/sda2"));
+        assert_eq!(partition_from_output("done\n", "ROOT_PARTITION"), None);
     }
 }
