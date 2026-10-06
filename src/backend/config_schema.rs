@@ -420,7 +420,7 @@ mod tests {
             timezone_city: "New_York".to_string(),
             keymap: "us".to_string(),
             hostname: "void-box".to_string(),
-            userlogin: "gui".to_string(),
+            userlogin: "user".to_string(),
             username: "Gui".to_string(),
             userpassword: "hunter2".to_string(),
             rootpassword: "hunter2root".to_string(),
@@ -468,13 +468,13 @@ mod tests {
 
     #[test]
     fn username_rules_match_python_regex() {
-        assert!(username_valid("gui"));
+        assert!(username_valid("user"));
         assert!(username_valid("_gui"));
-        assert!(username_valid("gui-2"));
+        assert!(username_valid("user-2"));
         assert!(!username_valid(""));
         assert!(!username_valid("Gui"));
         assert!(!username_valid("2gui"));
-        assert!(!username_valid("gui name"));
+        assert!(!username_valid("user name"));
     }
 
     #[test]

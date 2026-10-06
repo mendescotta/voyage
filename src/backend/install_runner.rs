@@ -280,7 +280,7 @@ mod tests {
             timezone: "America/New_York".to_string(),
             keymap: "us".to_string(),
             hostname: "void-box".to_string(),
-            userlogin: "gui".to_string(),
+            userlogin: "user".to_string(),
             username: "Gui".to_string(),
             userpassword: "hunter2".to_string(),
             rootpassword: "hunter2root".to_string(),
