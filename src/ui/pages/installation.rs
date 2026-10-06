@@ -1,5 +1,5 @@
-use adw::prelude::*;
 use gtk::glib;
+use gtk::prelude::*;
 
 use crate::backend::config_schema::InstallConfig;
 use crate::backend::install_runner::{InstallEvent, InstallRunner};

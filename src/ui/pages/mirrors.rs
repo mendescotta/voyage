@@ -1,5 +1,6 @@
-use adw::prelude::*;
+use gtk::prelude::*;
 
+use crate::ui::widgets::{ComboRow, Group, SwitchRow};
 use crate::ui::SysData;
 
 pub const TITLE: &str = "Mirror and Software";
@@ -15,10 +16,10 @@ const MIRRORS: &[(&str, &str)] = &[
 
 pub struct MirrorsPage {
     pub widget: gtk::Box,
-    mirror_row: adw::ComboRow,
-    nonfree_row: adw::SwitchRow,
-    nvidia_row: adw::SwitchRow,
-    intel_row: adw::SwitchRow,
+    mirror_row: ComboRow,
+    nonfree_row: SwitchRow,
+    nvidia_row: SwitchRow,
+    intel_row: SwitchRow,
     net: bool,
 }
 
@@ -32,23 +33,20 @@ impl MirrorsPage {
             .margin_end(24)
             .build();
 
-        let mirror_group = adw::PreferencesGroup::builder().title("Package mirror").build();
-        let model = gtk::StringList::new(&[]);
-        for (label, _key) in MIRRORS {
-            model.append(label);
-        }
-        let mirror_row = adw::ComboRow::builder().title("Mirror").model(&model).build();
+        let mirror_group = Group::new("Package mirror");
+        let labels: Vec<String> = MIRRORS.iter().map(|(label, _key)| label.to_string()).collect();
+        let mirror_row = ComboRow::new("Mirror", &labels);
         mirror_group.add(&mirror_row);
-        widget.append(&mirror_group);
+        widget.append(mirror_group.as_ref());
 
-        let software_group = adw::PreferencesGroup::builder().title("Additional software").build();
-        let nonfree_row = adw::SwitchRow::builder().title("Enable nonfree repository").build();
-        let nvidia_row = adw::SwitchRow::builder().title("Install proprietary NVIDIA driver").build();
-        let intel_row = adw::SwitchRow::builder().title("Install Intel graphics driver").build();
+        let software_group = Group::new("Additional software");
+        let nonfree_row = SwitchRow::new("Enable nonfree repository");
+        let nvidia_row = SwitchRow::new("Install proprietary NVIDIA driver");
+        let intel_row = SwitchRow::new("Install Intel graphics driver");
         software_group.add(&nonfree_row);
         software_group.add(&nvidia_row);
         software_group.add(&intel_row);
-        widget.append(&software_group);
+        widget.append(software_group.as_ref());
 
         Self { widget, mirror_row, nonfree_row, nvidia_row, intel_row, net: sys_data.net }
     }

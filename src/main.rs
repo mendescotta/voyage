@@ -3,7 +3,7 @@ mod ui;
 
 use std::env;
 
-use adw::prelude::*;
+use gtk::prelude::*;
 use gtk::gdk;
 use gtk::glib;
 
@@ -11,7 +11,6 @@ use backend::system_detect;
 use ui::SysData;
 
 fn load_theme() {
-    adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
     let provider = gtk::CssProvider::new();
     provider.load_from_string(ui::STYLE_CSS);
     if let Some(display) = gdk::Display::default() {
@@ -31,7 +30,8 @@ fn main() -> glib::ExitCode {
     let demo = env::args().any(|a| a == "--demo");
 
     glib::set_prgname(Some("voyage"));
-    let app = adw::Application::builder().application_id("org.voidlinux.Voyage").build();
+    ui::widgets::init();
+    let app = ui::widgets::new_app("org.voidlinux.Voyage");
 
     app.connect_activate(move |app| {
         gtk::Window::set_default_icon_name("voyage");

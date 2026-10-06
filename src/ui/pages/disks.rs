@@ -3,12 +3,13 @@ use std::process::Command;
 use std::rc::Rc;
 use std::thread;
 
-use adw::prelude::*;
 use gtk::glib;
+use gtk::prelude::*;
 
 use crate::backend::config_schema::{DiskChoices, RawPartitions, SwapStrategy};
 use crate::backend::paths::auto_partition_script;
 use crate::backend::system_detect::{self, check_disk_health, Disk, HealthStatus, PartitionDetail};
+use crate::ui::widgets::{self, ActionRow, ComboRow, Group, SwitchRow};
 use crate::ui::SysData;
 
 pub const TITLE: &str = "Disks";
@@ -17,14 +18,6 @@ const FILESYSTEMS: &[&str] = &["ext4", "btrfs", "ext3", "ext2", "xfs"];
 const BIOS_BOOTLOADERS: &[(&str, &str)] = &[("GRUB", "grub")];
 const EFI_BOOTLOADERS: &[(&str, &str)] = &[("GRUB", "grub"), ("Limine", "limine"), ("rEFInd", "refind")];
 
-fn string_list(items: &[String]) -> gtk::StringList {
-    let model = gtk::StringList::new(&[]);
-    for item in items {
-        model.append(item);
-    }
-    model
-}
-
 struct State {
     disks: Vec<Disk>,
     partitions: Vec<PartitionDetail>,
@@ -32,16 +25,16 @@ struct State {
 
 pub struct DisksPage {
     pub widget: gtk::Box,
-    disk_row: adw::ComboRow,
-    root_row: adw::ComboRow,
-    efi_row: adw::ComboRow,
-    swap_strategy_row: adw::ComboRow,
-    swap_row: adw::ComboRow,
-    home_row: adw::ComboRow,
-    filesys_row: adw::ComboRow,
-    btrfs_flat_row: adw::SwitchRow,
-    btrfs_snapshots_row: adw::SwitchRow,
-    bootloader_row: adw::ComboRow,
+    disk_row: ComboRow,
+    root_row: ComboRow,
+    efi_row: ComboRow,
+    swap_strategy_row: ComboRow,
+    swap_row: ComboRow,
+    home_row: ComboRow,
+    filesys_row: ComboRow,
+    btrfs_flat_row: SwitchRow,
+    btrfs_snapshots_row: SwitchRow,
+    bootloader_row: ComboRow,
     is_efi: bool,
     bootloaders: &'static [(&'static str, &'static str)],
     state: Rc<RefCell<State>>,
@@ -58,42 +51,35 @@ impl DisksPage {
             .build();
         let is_efi = sys_data.efi;
 
-        let auto_group = adw::PreferencesGroup::builder().title("Automatic partitioning").build();
+        let auto_group = Group::new("Automatic partitioning");
         let disks = system_detect::detect_disks();
         let disk_labels: Vec<String> = if disks.is_empty() {
             vec!["No disk found".to_string()]
         } else {
             disks.iter().map(|d| format!("{} ({})", d.model, d.size)).collect()
         };
-        let disk_row = adw::ComboRow::builder().title("Target disk").model(&string_list(&disk_labels)).build();
-        let layout_row = adw::ComboRow::builder()
-            .title("Layout")
-            .model(&string_list(&["Basic".to_string(), "Basic + swap".to_string()]))
-            .build();
-        let shred_row = adw::SwitchRow::builder()
-            .title("Securely erase disk first")
-            .subtitle("Overwrites the disk with zeros before partitioning. Adds time proportional to disk size.")
-            .build();
+        let disk_row = ComboRow::new("Target disk", &disk_labels);
+        let layout_row = ComboRow::new("Layout", &["Basic".to_string(), "Basic + swap".to_string()]);
+        let shred_row = SwitchRow::new("Securely erase disk first");
+        shred_row.set_subtitle("Overwrites the disk with zeros before partitioning. Adds time proportional to disk size.");
         let auto_button = gtk::Button::builder().label("Partition automatically").css_classes(["destructive-action"]).build();
-        let auto_row = adw::ActionRow::builder().title("Erase disk and create partitions").build();
-        auto_row.add_suffix(&auto_button);
+        let auto_row = ActionRow::new("Erase disk and create partitions");
+        auto_row.add_suffix(auto_button.upcast_ref());
         let health_label = gtk::Label::builder().css_classes(["dim-label", "caption"]).halign(gtk::Align::Start).build();
         auto_group.add(&disk_row);
-        auto_group.add(&adw::ActionRow::builder().child(&health_label).build());
+        auto_group.add(&ActionRow::with_child(health_label.upcast_ref()));
         auto_group.add(&layout_row);
         auto_group.add(&shred_row);
         auto_group.add(&auto_row);
-        widget.append(&auto_group);
+        widget.append(auto_group.as_ref());
 
-        let manual_group = adw::PreferencesGroup::builder().title("Manual assignment").build();
-        let root_row = adw::ComboRow::builder().title("Root (/)").build();
-        let efi_row = adw::ComboRow::builder().title("EFI (/boot/efi)").build();
-        let swap_strategy_row = adw::ComboRow::builder()
-            .title("Swap")
-            .model(&string_list(&["None".to_string(), "Partition".to_string(), "Swap file".to_string()]))
-            .build();
-        let swap_row = adw::ComboRow::builder().title("Swap partition").visible(false).build();
-        let home_row = adw::ComboRow::builder().title("Home (/home)").build();
+        let manual_group = Group::new("Manual assignment");
+        let root_row = ComboRow::new("Root (/)", &[]);
+        let efi_row = ComboRow::new("EFI (/boot/efi)", &[]);
+        let swap_strategy_row = ComboRow::new("Swap", &["None".to_string(), "Partition".to_string(), "Swap file".to_string()]);
+        let swap_row = ComboRow::new("Swap partition", &[]);
+        swap_row.set_visible(false);
+        let home_row = ComboRow::new("Home (/home)", &[]);
         manual_group.add(&root_row);
         if is_efi {
             manual_group.add(&efi_row);
@@ -104,42 +90,36 @@ impl DisksPage {
 
         {
             let swap_row = swap_row.clone();
-            swap_strategy_row.connect_selected_notify(move |row| {
+            swap_strategy_row.connect_selected(move |row| {
                 swap_row.set_visible(row.selected() == 1);
             });
         }
 
         let gparted_button = gtk::Button::builder().label("Open GParted").build();
-        let gparted_row = adw::ActionRow::builder().title("Need finer control?").build();
-        gparted_row.add_suffix(&gparted_button);
+        let gparted_row = ActionRow::new("Need finer control?");
+        gparted_row.add_suffix(gparted_button.upcast_ref());
         manual_group.add(&gparted_row);
-        widget.append(&manual_group);
+        widget.append(manual_group.as_ref());
 
-        let fs_group = adw::PreferencesGroup::builder().title("Filesystem").build();
-        let filesys_row = adw::ComboRow::builder()
-            .title("Format new partitions as")
-            .model(&string_list(&FILESYSTEMS.iter().map(|s| s.to_string()).collect::<Vec<_>>()))
-            .build();
+        let fs_group = Group::new("Filesystem");
+        let filesys_row =
+            ComboRow::new("Format new partitions as", &FILESYSTEMS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         fs_group.add(&filesys_row);
 
-        let btrfs_flat_row = adw::SwitchRow::builder()
-            .title("Flat layout")
-            .subtitle("Single subvolume instead of @/@home/@log/@pkg. Disables snapshots.")
-            .visible(false)
-            .build();
-        let btrfs_snapshots_row = adw::SwitchRow::builder()
-            .title("Enable @snapshots subvolume")
-            .subtitle("Mounted at /.snapshots.")
-            .visible(false)
-            .build();
+        let btrfs_flat_row = SwitchRow::new("Flat layout");
+        btrfs_flat_row.set_subtitle("Single subvolume instead of @/@home/@log/@pkg. Disables snapshots.");
+        btrfs_flat_row.set_visible(false);
+        let btrfs_snapshots_row = SwitchRow::new("Enable @snapshots subvolume");
+        btrfs_snapshots_row.set_subtitle("Mounted at /.snapshots.");
+        btrfs_snapshots_row.set_visible(false);
         fs_group.add(&btrfs_flat_row);
         fs_group.add(&btrfs_snapshots_row);
-        widget.append(&fs_group);
+        widget.append(fs_group.as_ref());
 
         {
             let btrfs_flat_row = btrfs_flat_row.clone();
             let btrfs_snapshots_row = btrfs_snapshots_row.clone();
-            filesys_row.connect_selected_notify(move |row| {
+            filesys_row.connect_selected(move |row| {
                 let is_btrfs = FILESYSTEMS[row.selected() as usize] == "btrfs";
                 btrfs_flat_row.set_visible(is_btrfs);
                 btrfs_snapshots_row.set_visible(is_btrfs);
@@ -147,7 +127,7 @@ impl DisksPage {
         }
         {
             let btrfs_snapshots_row = btrfs_snapshots_row.clone();
-            btrfs_flat_row.connect_active_notify(move |row| {
+            btrfs_flat_row.connect_active(move |row| {
                 if row.is_active() {
                     btrfs_snapshots_row.set_active(false);
                 }
@@ -156,13 +136,11 @@ impl DisksPage {
         }
 
         let bootloaders: &'static [(&'static str, &'static str)] = if is_efi { EFI_BOOTLOADERS } else { BIOS_BOOTLOADERS };
-        let bootloader_group = adw::PreferencesGroup::builder().title("Bootloader").build();
-        let bootloader_row = adw::ComboRow::builder()
-            .title("Install")
-            .model(&string_list(&bootloaders.iter().map(|(label, _)| label.to_string()).collect::<Vec<_>>()))
-            .build();
+        let bootloader_group = Group::new("Bootloader");
+        let bootloader_row =
+            ComboRow::new("Install", &bootloaders.iter().map(|(label, _)| label.to_string()).collect::<Vec<_>>());
         bootloader_group.add(&bootloader_row);
-        widget.append(&bootloader_group);
+        widget.append(bootloader_group.as_ref());
 
         let state = Rc::new(RefCell::new(State { disks, partitions: Vec::new() }));
 
@@ -223,7 +201,7 @@ impl DisksPage {
                 });
             };
             update_health(disk_row_for_connect.selected() as usize);
-            disk_row_for_connect.connect_selected_notify(move |row| update_health(row.selected() as usize));
+            disk_row_for_connect.connect_selected(move |row| update_health(row.selected() as usize));
         }
 
         {
@@ -255,26 +233,13 @@ impl DisksPage {
                          This action cannot be undone."
                     )
                 };
-                let dialog = adw::AlertDialog::builder()
-                    .heading("Warning: automatic partitioning")
-                    .body(body)
-                    .build();
-                dialog.add_response("cancel", "Cancel");
-                dialog.add_response("continue", "Continue");
-                dialog.set_response_appearance("continue", adw::ResponseAppearance::Destructive);
-
                 let state = state.clone();
-                let root = button.root();
                 let (root_row_w, efi_row_w, swap_row_w, home_row_w) =
                     (root_row_w.clone(), efi_row_w.clone(), swap_row_w.clone(), home_row_w.clone());
                 let swap_strategy_row = swap_strategy_row_outer.clone();
-                let error_root = root.clone();
                 let auto_button = button.clone();
-                dialog.connect_response(None, move |_dialog, response| {
-                    if response != "continue" {
-                        return;
-                    }
-
+                let error_anchor = button.clone();
+                widgets::confirm(button, "Warning: automatic partitioning", &body, "Continue", move || {
                     const AUTO_BUTTON_LABEL: &str = "Partition automatically";
                     auto_button.set_sensitive(false);
                     auto_button.set_label("Partitioning\u{2026}");
@@ -294,13 +259,6 @@ impl DisksPage {
                         let _ = tx.send_blocking(result);
                     });
 
-                    let state = state.clone();
-                    let disk = disk.clone();
-                    let (root_row_w, efi_row_w, swap_row_w, home_row_w) =
-                        (root_row_w.clone(), efi_row_w.clone(), swap_row_w.clone(), home_row_w.clone());
-                    let swap_strategy_row = swap_strategy_row.clone();
-                    let error_root = error_root.clone();
-                    let auto_button = auto_button.clone();
                     glib::spawn_future_local(async move {
                         let result = rx.recv().await;
                         auto_button.set_sensitive(true);
@@ -317,7 +275,7 @@ impl DisksPage {
                                 let options = partition_options(&state_mut.partitions);
                                 drop(state_mut);
                                 for row in [&root_row_w, &efi_row_w, &swap_row_w, &home_row_w] {
-                                    row.set_model(Some(&string_list(&options)));
+                                    row.set_items(&options);
                                 }
                                 if let Some(swap_name) = swap_partition {
                                     swap_strategy_row.set_selected(1);
@@ -325,22 +283,10 @@ impl DisksPage {
                                     select_partition(&swap_row_w, &state_ref.partitions, &swap_name);
                                 }
                             }
-                            _ => {
-                                let error = adw::AlertDialog::builder()
-                                    .heading("Error")
-                                    .body(format!("Failed to partition {disk}."))
-                                    .build();
-                                error.add_response("ok", "OK");
-                                if let Some(root) = &error_root {
-                                    error.present(Some(root));
-                                }
-                            }
+                            _ => widgets::alert(&error_anchor, "Error", &format!("Failed to partition {disk}.")),
                         }
                     });
                 });
-                if let Some(root) = root {
-                    dialog.present(Some(&root));
-                }
             });
         }
 
@@ -352,11 +298,7 @@ impl DisksPage {
             let home_row = page.home_row.clone();
             gparted_button.connect_clicked(move |button| {
                 if Command::new("gparted").status().is_err() {
-                    let error = adw::AlertDialog::builder().heading("Error").body("gparted is not installed.").build();
-                    error.add_response("ok", "OK");
-                    if let Some(root) = button.root() {
-                        error.present(Some(&root));
-                    }
+                    widgets::alert(button, "Error", "gparted is not installed.");
                     return;
                 }
                 let mut state_mut = state.borrow_mut();
@@ -364,7 +306,7 @@ impl DisksPage {
                 let options = partition_options(&state_mut.partitions);
                 drop(state_mut);
                 for row in [&root_row, &efi_row, &swap_row, &home_row] {
-                    row.set_model(Some(&string_list(&options)));
+                    row.set_items(&options);
                 }
             });
         }
@@ -376,9 +318,8 @@ impl DisksPage {
         let mut state = self.state.borrow_mut();
         state.partitions = system_detect::get_partitions_detailed();
         let options = partition_options(&state.partitions);
-        let model = string_list(&options);
         for row in [&self.root_row, &self.efi_row, &self.swap_row, &self.home_row] {
-            row.set_model(Some(&model));
+            row.set_items(&options);
         }
         drop(state);
         self.auto_select();
@@ -412,7 +353,7 @@ impl DisksPage {
         }
     }
 
-    fn partition_device(&self, row: &adw::ComboRow) -> Option<String> {
+    fn partition_device(&self, row: &ComboRow) -> Option<String> {
         let index = row.selected() as usize;
         if index == 0 {
             return None;
@@ -454,7 +395,7 @@ fn partition_options(partitions: &[PartitionDetail]) -> Vec<String> {
     options
 }
 
-fn select_partition(row: &adw::ComboRow, partitions: &[PartitionDetail], name: &str) {
+fn select_partition(row: &ComboRow, partitions: &[PartitionDetail], name: &str) {
     if let Some(index) = partitions.iter().position(|p| p.name == name) {
         row.set_selected((index + 1) as u32);
     }

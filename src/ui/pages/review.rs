@@ -1,6 +1,7 @@
-use adw::prelude::*;
+use gtk::prelude::*;
 
 use crate::backend::config_schema::{InstallConfig, Partition};
+use crate::ui::widgets::{ActionRow, Group};
 
 pub const TITLE: &str = "Review";
 
@@ -74,8 +75,8 @@ fn btrfs_summary(config: &InstallConfig) -> String {
 
 pub struct ReviewPage {
     pub widget: gtk::Box,
-    group: adw::PreferencesGroup,
-    rows: std::cell::RefCell<Vec<adw::ActionRow>>,
+    group: Group,
+    rows: std::cell::RefCell<Vec<ActionRow>>,
     pub install_button: gtk::Button,
 }
 
@@ -97,8 +98,8 @@ impl ReviewPage {
             .build();
         widget.append(&warning);
 
-        let group = adw::PreferencesGroup::builder().title("Summary").build();
-        widget.append(&group);
+        let group = Group::new("Summary");
+        widget.append(group.as_ref());
 
         let install_button = gtk::Button::builder()
             .label("Install Now")
@@ -116,7 +117,8 @@ impl ReviewPage {
             self.group.remove(&row);
         }
         for (label, value) in review_rows(config) {
-            let row = adw::ActionRow::builder().title(label).subtitle(value).build();
+            let row = ActionRow::new(&label);
+            row.set_subtitle(&value);
             self.group.add(&row);
             rows.push(row);
         }

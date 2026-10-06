@@ -1,20 +1,21 @@
-use adw::prelude::*;
+use gtk::prelude::*;
 
+use crate::ui::widgets::{EntryRow, Group, SwitchRow};
 use crate::ui::SysData;
 
 pub const TITLE: &str = "Users";
 
 pub struct UsersPage {
     pub widget: gtk::Box,
-    hostname_row: adw::EntryRow,
-    fullname_row: adw::EntryRow,
-    userlogin_row: adw::EntryRow,
-    userpassword_row: adw::PasswordEntryRow,
-    userpassword_confirm_row: adw::PasswordEntryRow,
-    same_password_row: adw::SwitchRow,
-    rootpassword_row: adw::PasswordEntryRow,
-    rootpassword_confirm_row: adw::PasswordEntryRow,
-    autologin_row: adw::SwitchRow,
+    hostname_row: EntryRow,
+    fullname_row: EntryRow,
+    userlogin_row: EntryRow,
+    userpassword_row: EntryRow,
+    userpassword_confirm_row: EntryRow,
+    same_password_row: SwitchRow,
+    rootpassword_row: EntryRow,
+    rootpassword_confirm_row: EntryRow,
+    autologin_row: SwitchRow,
 }
 
 impl UsersPage {
@@ -27,38 +28,36 @@ impl UsersPage {
             .margin_end(24)
             .build();
 
-        let system_group = adw::PreferencesGroup::builder().title("Computer").build();
-        let hostname_row = adw::EntryRow::builder().title("Computer name").text("void").build();
+        let system_group = Group::new("Computer");
+        let hostname_row = EntryRow::new("Computer name", "void");
         system_group.add(&hostname_row);
-        widget.append(&system_group);
+        widget.append(system_group.as_ref());
 
-        let user_group = adw::PreferencesGroup::builder().title("Your account").build();
-        let fullname_row = adw::EntryRow::builder().title("Full name").text("void").build();
-        let userlogin_row = adw::EntryRow::builder().title("Username").text("void").build();
-        let userpassword_row = adw::PasswordEntryRow::builder().title("Password").build();
-        let userpassword_confirm_row = adw::PasswordEntryRow::builder().title("Confirm password").build();
+        let user_group = Group::new("Your account");
+        let fullname_row = EntryRow::new("Full name", "void");
+        let userlogin_row = EntryRow::new("Username", "void");
+        let userpassword_row = EntryRow::password("Password");
+        let userpassword_confirm_row = EntryRow::password("Confirm password");
         user_group.add(&fullname_row);
         user_group.add(&userlogin_row);
         user_group.add(&userpassword_row);
         user_group.add(&userpassword_confirm_row);
-        widget.append(&user_group);
+        widget.append(user_group.as_ref());
 
-        let root_group = adw::PreferencesGroup::builder().title("Root account").build();
-        let same_password_row = adw::SwitchRow::builder()
-            .title("Use my account password for root")
-            .subtitle("Skip setting a separate root password.")
-            .build();
-        let rootpassword_row = adw::PasswordEntryRow::builder().title("Root password").build();
-        let rootpassword_confirm_row = adw::PasswordEntryRow::builder().title("Confirm root password").build();
+        let root_group = Group::new("Root account");
+        let same_password_row = SwitchRow::new("Use my account password for root");
+        same_password_row.set_subtitle("Skip setting a separate root password.");
+        let rootpassword_row = EntryRow::password("Root password");
+        let rootpassword_confirm_row = EntryRow::password("Confirm root password");
         root_group.add(&same_password_row);
         root_group.add(&rootpassword_row);
         root_group.add(&rootpassword_confirm_row);
-        widget.append(&root_group);
+        widget.append(root_group.as_ref());
 
         {
             let rootpassword_row = rootpassword_row.clone();
             let rootpassword_confirm_row = rootpassword_confirm_row.clone();
-            same_password_row.connect_notify_local(Some("active"), move |row, _| {
+            same_password_row.connect_active(move |row| {
                 let same_password = row.is_active();
                 for entry in [&rootpassword_row, &rootpassword_confirm_row] {
                     entry.set_sensitive(!same_password);
@@ -67,7 +66,7 @@ impl UsersPage {
             });
         }
 
-        let autologin_row = adw::SwitchRow::builder().title("Log in automatically").build();
+        let autologin_row = SwitchRow::new("Log in automatically");
         user_group.add(&autologin_row);
         configure_autologin(&autologin_row, sys_data.display_manager.as_deref());
 
@@ -114,7 +113,7 @@ impl UsersPage {
     }
 }
 
-fn configure_autologin(row: &adw::SwitchRow, display_manager: Option<&str>) {
+fn configure_autologin(row: &SwitchRow, display_manager: Option<&str>) {
     let manager = display_manager.unwrap_or("").to_lowercase();
     match manager.as_str() {
         "sddm" | "lightdm" | "gdm" => {

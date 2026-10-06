@@ -1,5 +1,5 @@
 
-use adw::prelude::*;
+use gtk::prelude::*;
 
 const LOG_PATH: &str = "/tmp/installation.log";
 
@@ -61,15 +61,11 @@ impl CompletionPage {
             let scroller = gtk::ScrolledWindow::builder().vexpand(true).hexpand(true).build();
             scroller.set_child(Some(&text_view));
 
-            let toolbar_view = adw::ToolbarView::new();
-            toolbar_view.add_top_bar(&adw::HeaderBar::new());
-            toolbar_view.set_content(Some(&scroller));
-
-            let dialog = adw::Dialog::builder().title("Installation Log").content_width(800).content_height(600).build();
-            dialog.set_child(Some(&toolbar_view));
-            if let Some(root) = page_widget.root() {
-                dialog.present(Some(&root));
+            let mut dialog = gtk::Window::builder().title("Installation Log").default_width(800).default_height(600).modal(true);
+            if let Some(parent) = page_widget.root().and_then(|root| root.downcast::<gtk::Window>().ok()) {
+                dialog = dialog.transient_for(&parent);
             }
+            dialog.child(&scroller).build().present();
         });
 
         Self { widget, icon, heading, detail, log_button }

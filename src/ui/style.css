@@ -1,27 +1,33 @@
-@define-color window_bg_color #282828;
-@define-color window_fg_color #d4be98;
-@define-color view_bg_color #32302f;
-@define-color view_fg_color #d4be98;
-@define-color headerbar_bg_color #282828;
-@define-color headerbar_fg_color #ddc7a1;
-@define-color card_bg_color #3c3836;
-@define-color card_fg_color #d4be98;
-@define-color popover_bg_color #3c3836;
-@define-color popover_fg_color #d4be98;
-@define-color accent_color #d8a657;
-@define-color accent_bg_color #d8a657;
-@define-color accent_fg_color #282828;
-@define-color destructive_color #ea6962;
-@define-color destructive_bg_color #ea6962;
-@define-color destructive_fg_color #282828;
-@define-color dialog_bg_color #282828;
-@define-color dialog_fg_color #d4be98;
-@define-color sidebar_bg_color #282828;
-@define-color sidebar_fg_color #d4be98;
-@define-color borders #504945;
-
-.boxed-list, list, row, .content-list, preferencesgroup {
-    background-color: #32302f;
-    color: #d4be98;
+/* Structure only: colors come from the active GTK theme (adw-gtk3, Adwaita, ...). */
+.voyage-tabs {
+    border-bottom: 1px solid alpha(currentColor, 0.15);
 }
-row:hover { background-color: #3c3836; }
+.voyage-tabs button {
+    background: none;
+    box-shadow: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 10px 16px;
+    min-height: 0;
+}
+.voyage-tabs button:checked {
+    background: none;
+    border-bottom-color: @theme_selected_bg_color;
+}
+.voyage-tabs button:disabled {
+    opacity: 0.45;
+}
+.voyage-panel {
+    border-radius: 8px;
+    margin: 12px;
+}
+.voyage-group row {
+    border-bottom: 1px solid alpha(currentColor, 0.1);
+}
+.voyage-group row:last-child {
+    border-bottom: none;
+}
+.voyage-banner {
+    border-radius: 6px;
+}

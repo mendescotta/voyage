@@ -4,21 +4,14 @@ use std::rc::Rc;
 use std::thread;
 use std::time::Duration;
 
-use adw::prelude::*;
 use gtk::glib;
+use gtk::prelude::*;
 
 use crate::backend::{locales, system_detect};
+use crate::ui::widgets::{Banner, ComboRow, Group};
 use crate::ui::SysData;
 
 pub const TITLE: &str = "Welcome";
-
-fn string_list(items: &[String]) -> gtk::StringList {
-    let model = gtk::StringList::new(&[]);
-    for item in items {
-        model.append(item);
-    }
-    model
-}
 
 struct Inner {
     locale_codes: Vec<String>,
@@ -29,10 +22,10 @@ struct Inner {
 
 pub struct WelcomePage {
     pub widget: gtk::Box,
-    locale_row: adw::ComboRow,
-    region_row: adw::ComboRow,
-    city_row: adw::ComboRow,
-    keymap_row: adw::ComboRow,
+    locale_row: ComboRow,
+    region_row: ComboRow,
+    city_row: ComboRow,
+    keymap_row: ComboRow,
     inner: Rc<RefCell<Inner>>,
 }
 
@@ -56,7 +49,7 @@ impl WelcomePage {
         if locales_list.is_empty() {
             locales_list.push("en_US.UTF-8".to_string());
         }
-        let locale_group = adw::PreferencesGroup::builder().title("Locale").build();
+        let locale_group = Group::new("Locale");
         let language_names: Vec<String> = locales_list
             .iter()
             .map(|loc| {
@@ -65,12 +58,9 @@ impl WelcomePage {
                 if name.is_empty() { loc.clone() } else { name }
             })
             .collect();
-        let locale_row = adw::ComboRow::builder()
-            .title("System language")
-            .model(&string_list(&language_names))
-            .build();
+        let locale_row = ComboRow::new("System language", &language_names);
         locale_group.add(&locale_row);
-        widget.append(&locale_group);
+        widget.append(locale_group.as_ref());
         let default_locale_idx = locales_list.iter().position(|l| l.starts_with("en_US")).unwrap_or(0);
         locale_row.set_selected(default_locale_idx as u32);
 
@@ -79,23 +69,23 @@ impl WelcomePage {
             zones.insert("UTC".to_string(), vec!["UTC".to_string()]);
         }
         let regions: Vec<String> = zones.keys().cloned().collect();
-        let tz_group = adw::PreferencesGroup::builder().title("Timezone").build();
-        let region_row = adw::ComboRow::builder().title("Region").model(&string_list(&regions)).build();
+        let tz_group = Group::new("Timezone");
+        let region_row = ComboRow::new("Region", &regions);
         let first_region_cities = zones.get(&regions[0]).cloned().unwrap_or_default();
-        let city_row = adw::ComboRow::builder().title("City").model(&string_list(&first_region_cities)).build();
+        let city_row = ComboRow::new("City", &first_region_cities);
         tz_group.add(&region_row);
         tz_group.add(&city_row);
-        widget.append(&tz_group);
+        widget.append(tz_group.as_ref());
 
         let mut keymaps = system_detect::detect_keymaps();
         if keymaps.is_empty() {
             keymaps.push("us".to_string());
         }
         let keymap_names: Vec<String> = keymaps.iter().map(|k| locales::keymap_name(k)).collect();
-        let keymap_group = adw::PreferencesGroup::builder().title("Keyboard").build();
-        let keymap_row = adw::ComboRow::builder().title("Layout").model(&string_list(&keymap_names)).build();
+        let keymap_group = Group::new("Keyboard");
+        let keymap_row = ComboRow::new("Layout", &keymap_names);
         keymap_group.add(&keymap_row);
-        widget.append(&keymap_group);
+        widget.append(keymap_group.as_ref());
         let default_keymap_idx = keymaps.iter().position(|k| k == "us").unwrap_or(0);
         keymap_row.set_selected(default_keymap_idx as u32);
 
@@ -105,8 +95,8 @@ impl WelcomePage {
         } else {
             "No internet connection detected. Installer in offline mode."
         };
-        let banner = adw::Banner::builder().title(status).revealed(true).build();
-        widget.append(&banner);
+        let banner = Banner::new(status);
+        widget.append(banner.as_ref());
 
         let inner = Rc::new(RefCell::new(Inner {
             locale_codes: locales_list,
@@ -118,12 +108,12 @@ impl WelcomePage {
         {
             let inner = inner.clone();
             let city_row = city_row.clone();
-            region_row.connect_notify_local(Some("selected"), move |row, _| {
+            region_row.connect_selected(move |row| {
                 let inner = inner.borrow();
                 let selected = row.selected() as usize;
                 let Some(region) = inner.regions.get(selected) else { return };
                 let cities = inner.zones.get(region).cloned().unwrap_or_default();
-                city_row.set_model(Some(&string_list(&cities)));
+                city_row.set_items(&cities);
             });
         }
 
@@ -160,7 +150,7 @@ impl WelcomePage {
     }
 }
 
-fn apply_network_timezone(inner: &Rc<RefCell<Inner>>, region_row: &adw::ComboRow, city_row: &adw::ComboRow, tz: &str) {
+fn apply_network_timezone(inner: &Rc<RefCell<Inner>>, region_row: &ComboRow, city_row: &ComboRow, tz: &str) {
     let Some((region, city)) = tz.split_once('/') else { return };
     let inner_ref = inner.borrow();
     let Some(region_idx) = inner_ref.regions.iter().position(|r| r == region) else { return };
@@ -170,7 +160,7 @@ fn apply_network_timezone(inner: &Rc<RefCell<Inner>>, region_row: &adw::ComboRow
     drop(inner_ref);
 
     region_row.set_selected(region_idx as u32);
-    city_row.set_model(Some(&string_list(&cities)));
+    city_row.set_items(&cities);
     city_row.set_selected(city_idx as u32);
 }
 
