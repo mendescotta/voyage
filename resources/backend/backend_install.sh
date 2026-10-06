@@ -638,67 +638,42 @@ enable_nonfree_repos() {
     echo "Non-free repositories enabled"
 }
 
-get_nvidia_driver() {
-    local info
-    info=$(lspci | grep -i nvidia)
-
-    local series
-    series=$(echo "$info" | grep -oP '\b[0-9]{3,}\b' | head -n1)
-
-    local driver=""
-
-    if [ -n "$series" ]; then
-        if [ "$series" -ge 800 ]; then
-            driver="nvidia"
-        elif [ "$series" -ge 600 ]; then
-            driver="nvidia470"
-        elif [ "$series" -ge 400 ]; then
-            driver="nvidia390"
-        fi
+# Detect the machine running the installer and configure the new system for it (GPU driver and
+# firmware, Wi-Fi, microcode, VM guest tools). Never fatal: the system boots without it.
+install_hardware_drivers() {
+    if [ "$(get_option HWDRIVERS)" != "1" ]; then
+        echo "Hardware-specific drivers were not requested"
+        return 0
     fi
-    echo "$driver"
+    if ! command -v voidhw >/dev/null 2>&1; then
+        echo "voidhw is not installed; skipping hardware-specific drivers"
+        return 0
+    fi
+    log_ui "HARDWARE"
+    echo "Installing drivers and firmware for this hardware..."
+    voidhw --apply --root "$TARGETDIR" --hardware-from / ||
+        echo "WARNING: hardware driver setup failed; run 'voidhw --apply' on the installed system to retry" >&2
 }
 
-install_nvidia_driver() {
-    local driver
-    driver=$(get_nvidia_driver)
-
-    if [ -n "$driver" ]; then
-        echo "Installing NVIDIA driver: $driver..."
-        log_ui "NVIDIA"
-        chroot "$TARGETDIR" xbps-install -Sy "$driver" || die "Error installing driver $driver"
-        echo "NVIDIA driver successfully installed"
-    else
-        echo "No compatible NVIDIA driver detected, nouveau/nvk will be used"
-    fi
-}
-
-install_intel_microcodes() {
-    echo "Installing Intel microcode..."
-    log_ui "INTEL"
-    chroot "$TARGETDIR" xbps-install -Sy intel-ucode || die "Failure when installing Intel microcode"
-    echo "Intel microcodes installed correctly"
+# dracut options for the chosen initramfs driver set: generic (works on other hardware, the
+# default) or targeted (only the drivers this machine needs, like Debian's MODULES=dep).
+initramfs_dracut_args() {
+    case "$(get_option DRIVERSET)" in
+        targeted) echo "--hostonly" ;;
+        *) echo "--no-hostonly --add-drivers ahci" ;;
+    esac
 }
 
 install_extra_software() {
     local update=$(get_option UPDATE)
     local nonfree=$(get_option NONFREE)
-    local nvidia=$(get_option NVIDIA)
-    local intel=$(get_option INTEL)
 
     if [ "$update" = "1" ]; then
         update_system
         if [ "$nonfree" = "1" ]; then
             enable_nonfree_repos
-            if [ "$nvidia" = "1" ]; then
-                install_nvidia_driver
-            fi
-
-            if [ "$intel" = "1" ]; then
-                install_intel_microcodes
-            fi
         else
-            echo "Non-free repositories and proprietary drivers were not activated"
+            echo "Non-free repositories were not activated"
         fi
     else
         echo "Offline installer: the system will not be updated"
@@ -906,6 +881,7 @@ set_hostname
 
 set_mirror
 install_extra_software
+install_hardware_drivers
 
 echo "Rebuilding initramfs for the target system..."
 if [ "$INIT_SYSTEM" = "dynamod" ]; then
@@ -925,7 +901,7 @@ if [ "$INIT_SYSTEM" = "dynamod" ]; then
         > "$TARGETDIR/boot/initramfs-$kver.img"
     rm -rf "$initramfs_dir"
 else
-    chroot "$TARGETDIR" dracut --no-hostonly --add-drivers "ahci" --omit "crypt overlayfs-crypt nfs" --force || die "Error rebuilding initramfs"
+    chroot "$TARGETDIR" dracut $(initramfs_dracut_args) --omit "crypt overlayfs-crypt nfs" --force || die "Error rebuilding initramfs"
 fi
 
 log_ui "USER_CONFIG"

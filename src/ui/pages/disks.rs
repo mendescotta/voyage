@@ -16,7 +16,8 @@ pub const TITLE: &str = "Disks";
 
 const FILESYSTEMS: &[&str] = &["ext4", "btrfs", "ext3", "ext2", "xfs"];
 const BIOS_BOOTLOADERS: &[(&str, &str)] = &[("GRUB", "grub")];
-const EFI_BOOTLOADERS: &[(&str, &str)] = &[("GRUB", "grub"), ("Limine", "limine"), ("rEFInd", "refind")];
+const EFI_BOOTLOADERS: &[(&str, &str)] =
+    &[("GRUB", "grub"), ("Limine", "limine"), ("rEFInd", "refind")];
 
 struct State {
     disks: Vec<Disk>,
@@ -56,16 +57,26 @@ impl DisksPage {
         let disk_labels: Vec<String> = if disks.is_empty() {
             vec!["No disk found".to_string()]
         } else {
-            disks.iter().map(|d| format!("{} ({})", d.model, d.size)).collect()
+            disks
+                .iter()
+                .map(|d| format!("{} ({})", d.model, d.size))
+                .collect()
         };
         let disk_row = ComboRow::new("Target disk", &disk_labels);
-        let layout_row = ComboRow::new("Layout", &["Basic".to_string(), "Basic + swap".to_string()]);
+        let layout_row =
+            ComboRow::new("Layout", &["Basic".to_string(), "Basic + swap".to_string()]);
         let shred_row = SwitchRow::new("Securely erase disk first");
         shred_row.set_subtitle("Overwrites the disk with zeros before partitioning. Adds time proportional to disk size.");
-        let auto_button = gtk::Button::builder().label("Partition automatically").css_classes(["destructive-action"]).build();
+        let auto_button = gtk::Button::builder()
+            .label("Partition automatically")
+            .css_classes(["destructive-action"])
+            .build();
         let auto_row = ActionRow::new("Erase disk and create partitions");
         auto_row.add_suffix(auto_button.upcast_ref());
-        let health_label = gtk::Label::builder().css_classes(["dim-label", "caption"]).halign(gtk::Align::Start).build();
+        let health_label = gtk::Label::builder()
+            .css_classes(["dim-label", "caption"])
+            .halign(gtk::Align::Start)
+            .build();
         auto_group.add(&disk_row);
         auto_group.add(&ActionRow::with_child(health_label.upcast_ref()));
         auto_group.add(&layout_row);
@@ -76,7 +87,14 @@ impl DisksPage {
         let manual_group = Group::new("Manual assignment");
         let root_row = ComboRow::new("Root (/)", &[]);
         let efi_row = ComboRow::new("EFI (/boot/efi)", &[]);
-        let swap_strategy_row = ComboRow::new("Swap", &["None".to_string(), "Partition".to_string(), "Swap file".to_string()]);
+        let swap_strategy_row = ComboRow::new(
+            "Swap",
+            &[
+                "None".to_string(),
+                "Partition".to_string(),
+                "Swap file".to_string(),
+            ],
+        );
         let swap_row = ComboRow::new("Swap partition", &[]);
         swap_row.set_visible(false);
         let home_row = ComboRow::new("Home (/home)", &[]);
@@ -102,12 +120,18 @@ impl DisksPage {
         widget.append(manual_group.as_ref());
 
         let fs_group = Group::new("Filesystem");
-        let filesys_row =
-            ComboRow::new("Format new partitions as", &FILESYSTEMS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let filesys_row = ComboRow::new(
+            "Format new partitions as",
+            &FILESYSTEMS
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+        );
         fs_group.add(&filesys_row);
 
         let btrfs_flat_row = SwitchRow::new("Flat layout");
-        btrfs_flat_row.set_subtitle("Single subvolume instead of @/@home/@log/@pkg. Disables snapshots.");
+        btrfs_flat_row
+            .set_subtitle("Single subvolume instead of @/@home/@log/@pkg. Disables snapshots.");
         btrfs_flat_row.set_visible(false);
         let btrfs_snapshots_row = SwitchRow::new("Enable @snapshots subvolume");
         btrfs_snapshots_row.set_subtitle("Mounted at /.snapshots.");
@@ -135,14 +159,26 @@ impl DisksPage {
             });
         }
 
-        let bootloaders: &'static [(&'static str, &'static str)] = if is_efi { EFI_BOOTLOADERS } else { BIOS_BOOTLOADERS };
+        let bootloaders: &'static [(&'static str, &'static str)] = if is_efi {
+            EFI_BOOTLOADERS
+        } else {
+            BIOS_BOOTLOADERS
+        };
         let bootloader_group = Group::new("Bootloader");
-        let bootloader_row =
-            ComboRow::new("Install", &bootloaders.iter().map(|(label, _)| label.to_string()).collect::<Vec<_>>());
+        let bootloader_row = ComboRow::new(
+            "Install",
+            &bootloaders
+                .iter()
+                .map(|(label, _)| label.to_string())
+                .collect::<Vec<_>>(),
+        );
         bootloader_group.add(&bootloader_row);
         widget.append(bootloader_group.as_ref());
 
-        let state = Rc::new(RefCell::new(State { disks, partitions: Vec::new() }));
+        let state = Rc::new(RefCell::new(State {
+            disks,
+            partitions: Vec::new(),
+        }));
 
         let page = Self {
             widget,
@@ -183,8 +219,12 @@ impl DisksPage {
                 let disk_row = disk_row.clone();
                 let disks = disks.clone();
                 glib::spawn_future_local(async move {
-                    let Ok((checked_name, health)) = rx.recv().await else { return };
-                    let current = disks.get(disk_row.selected() as usize).map(|d| d.name.as_str());
+                    let Ok((checked_name, health)) = rx.recv().await else {
+                        return;
+                    };
+                    let current = disks
+                        .get(disk_row.selected() as usize)
+                        .map(|d| d.name.as_str());
                     if current != Some(checked_name.as_str()) {
                         return;
                     }
@@ -201,7 +241,8 @@ impl DisksPage {
                 });
             };
             update_health(disk_row_for_connect.selected() as usize);
-            disk_row_for_connect.connect_selected(move |row| update_health(row.selected() as usize));
+            disk_row_for_connect
+                .connect_selected(move |row| update_health(row.selected() as usize));
         }
 
         {
@@ -210,8 +251,12 @@ impl DisksPage {
             let shred_row = shred_row.clone();
             let swap_strategy_row_outer = page.swap_strategy_row.clone();
             let state = page.state.clone();
-            let (root_row_w, efi_row_w, swap_row_w, home_row_w) =
-                (page.root_row.clone(), page.efi_row.clone(), page.swap_row.clone(), page.home_row.clone());
+            let (root_row_w, efi_row_w, swap_row_w, home_row_w) = (
+                page.root_row.clone(),
+                page.efi_row.clone(),
+                page.swap_row.clone(),
+                page.home_row.clone(),
+            );
             auto_button.connect_clicked(move |button| {
                 let state_ref = state.borrow();
                 if state_ref.disks.is_empty() {
@@ -325,7 +370,12 @@ impl DisksPage {
         let mut state = self.state.borrow_mut();
         state.partitions = system_detect::get_partitions_detailed();
         let options = partition_options(&state.partitions);
-        for row in [&self.root_row, &self.efi_row, &self.swap_row, &self.home_row] {
+        for row in [
+            &self.root_row,
+            &self.efi_row,
+            &self.swap_row,
+            &self.home_row,
+        ] {
             row.set_items(&options);
         }
         drop(state);
@@ -334,13 +384,26 @@ impl DisksPage {
 
     fn auto_select(&self) {
         let state = self.state.borrow();
-        let efi_parts: Vec<&PartitionDetail> =
-            state.partitions.iter().filter(|p| p.fstype.contains("vfat") || p.fstype.contains("fat")).collect();
-        let swap_parts: Vec<&PartitionDetail> = state.partitions.iter().filter(|p| p.fstype.contains("swap")).collect();
-        let claimed: std::collections::HashSet<&str> =
-            efi_parts.iter().chain(swap_parts.iter()).map(|p| p.name.as_str()).collect();
-        let mut other_sorted: Vec<&PartitionDetail> =
-            state.partitions.iter().filter(|p| !claimed.contains(p.name.as_str())).collect();
+        let efi_parts: Vec<&PartitionDetail> = state
+            .partitions
+            .iter()
+            .filter(|p| p.fstype.contains("vfat") || p.fstype.contains("fat"))
+            .collect();
+        let swap_parts: Vec<&PartitionDetail> = state
+            .partitions
+            .iter()
+            .filter(|p| p.fstype.contains("swap"))
+            .collect();
+        let claimed: std::collections::HashSet<&str> = efi_parts
+            .iter()
+            .chain(swap_parts.iter())
+            .map(|p| p.name.as_str())
+            .collect();
+        let mut other_sorted: Vec<&PartitionDetail> = state
+            .partitions
+            .iter()
+            .filter(|p| !claimed.contains(p.name.as_str()))
+            .collect();
         other_sorted.sort_by_key(|p| std::cmp::Reverse(p.size_bytes));
 
         if self.is_efi {
@@ -365,18 +428,28 @@ impl DisksPage {
         if index == 0 {
             return None;
         }
-        self.state.borrow().partitions.get(index - 1).map(|p| p.name.clone())
+        self.state
+            .borrow()
+            .partitions
+            .get(index - 1)
+            .map(|p| p.name.clone())
     }
 
     pub fn collect(&self) -> (DiskChoices, Vec<(String, String)>) {
         let raw_parts = RawPartitions {
             root: self.partition_device(&self.root_row),
-            efi: if self.is_efi { self.partition_device(&self.efi_row) } else { None },
+            efi: if self.is_efi {
+                self.partition_device(&self.efi_row)
+            } else {
+                None
+            },
             swap: self.partition_device(&self.swap_row),
             home: self.partition_device(&self.home_row),
         };
         let filesystem = FILESYSTEMS[self.filesys_row.selected() as usize].to_string();
-        let bootloader_type = self.bootloaders[self.bootloader_row.selected() as usize].1.to_string();
+        let bootloader_type = self.bootloaders[self.bootloader_row.selected() as usize]
+            .1
+            .to_string();
         (
             DiskChoices {
                 raw_parts,
@@ -399,7 +472,9 @@ impl DisksPage {
 /// Value of a `KEY=/dev/...` line printed by auto_partition.sh.
 fn partition_from_output(stdout: &str, key: &str) -> Option<String> {
     let prefix = format!("{key}=");
-    stdout.lines().find_map(|line| line.strip_prefix(&prefix).map(str::to_string))
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix).map(str::to_string))
 }
 
 fn partition_options(partitions: &[PartitionDetail]) -> Vec<String> {
@@ -421,9 +496,18 @@ mod tests {
     #[test]
     fn reads_created_partitions_from_the_script_output() {
         let out = "Securely erasing...\nSWAP_PARTITION=/dev/sda2\nROOT_PARTITION=/dev/sda3\nEFI_PARTITION=/dev/sda1\nAutomatic partitioning completed on /dev/sda (with-swap layout)\n";
-        assert_eq!(partition_from_output(out, "ROOT_PARTITION").as_deref(), Some("/dev/sda3"));
-        assert_eq!(partition_from_output(out, "EFI_PARTITION").as_deref(), Some("/dev/sda1"));
-        assert_eq!(partition_from_output(out, "SWAP_PARTITION").as_deref(), Some("/dev/sda2"));
+        assert_eq!(
+            partition_from_output(out, "ROOT_PARTITION").as_deref(),
+            Some("/dev/sda3")
+        );
+        assert_eq!(
+            partition_from_output(out, "EFI_PARTITION").as_deref(),
+            Some("/dev/sda1")
+        );
+        assert_eq!(
+            partition_from_output(out, "SWAP_PARTITION").as_deref(),
+            Some("/dev/sda2")
+        );
         assert_eq!(partition_from_output("done\n", "ROOT_PARTITION"), None);
     }
 }

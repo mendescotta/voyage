@@ -11,40 +11,98 @@ pub fn review_rows(config: &InstallConfig) -> Vec<(String, String)> {
         ("Timezone".to_string(), config.timezone.clone()),
         ("Keyboard layout".to_string(), config.keymap.clone()),
         ("Computer name".to_string(), config.hostname.clone()),
-        ("User account".to_string(), format!("{} ({})", config.username, config.userlogin)),
-        ("User password".to_string(), password_state(&config.userpassword)),
-        ("Root password".to_string(), password_state(&config.rootpassword)),
-        ("Display manager".to_string(), display_manager_label(&config.display_manager)),
+        (
+            "User account".to_string(),
+            format!("{} ({})", config.username, config.userlogin),
+        ),
+        (
+            "User password".to_string(),
+            password_state(&config.userpassword),
+        ),
+        (
+            "Root password".to_string(),
+            password_state(&config.rootpassword),
+        ),
+        (
+            "Display manager".to_string(),
+            display_manager_label(&config.display_manager),
+        ),
         ("Auto login".to_string(), yes_no(config.autologin)),
         ("Mirror".to_string(), config.mirror.clone()),
         ("System updates".to_string(), yes_no(config.update)),
         ("Nonfree repository".to_string(), yes_no(config.nonfree)),
-        ("NVIDIA driver".to_string(), yes_no(config.nvidia)),
-        ("Intel driver".to_string(), yes_no(config.intel)),
-        ("Disk layout".to_string(), partitions_summary(&config.partitions)),
+        (
+            "Hardware drivers".to_string(),
+            if config.hw_drivers {
+                "Detected for this machine".to_string()
+            } else {
+                "Disabled".to_string()
+            },
+        ),
+        (
+            "Initramfs drivers".to_string(),
+            match config.driver_set {
+                crate::backend::config_schema::DriverSet::Generic => {
+                    "Generic (any hardware)".to_string()
+                }
+                crate::backend::config_schema::DriverSet::Targeted => {
+                    "Targeted (this machine only)".to_string()
+                }
+            },
+        ),
+        (
+            "Disk layout".to_string(),
+            partitions_summary(&config.partitions),
+        ),
         ("Swap".to_string(), swap_summary(config)),
-        ("Filesystem".to_string(), root_filesystem(&config.partitions)),
+        (
+            "Filesystem".to_string(),
+            root_filesystem(&config.partitions),
+        ),
         ("Btrfs layout".to_string(), btrfs_summary(config)),
-        ("Bootloader".to_string(), format!("{} on {}", config.bootloader_type, config.bootloader_disk)),
+        (
+            "Bootloader".to_string(),
+            format!("{} on {}", config.bootloader_type, config.bootloader_disk),
+        ),
     ]
 }
 
 fn display_manager_label(display_manager: &str) -> String {
-    if display_manager.is_empty() { "None".to_string() } else { display_manager.to_string() }
+    if display_manager.is_empty() {
+        "None".to_string()
+    } else {
+        display_manager.to_string()
+    }
 }
 
 fn password_state(pwd: &str) -> String {
-    if pwd.is_empty() { "(none)".to_string() } else { "(set)".to_string() }
+    if pwd.is_empty() {
+        "(none)".to_string()
+    } else {
+        "(set)".to_string()
+    }
 }
 
 fn yes_no(b: bool) -> String {
-    if b { "Enabled".to_string() } else { "Disabled".to_string() }
+    if b {
+        "Enabled".to_string()
+    } else {
+        "Disabled".to_string()
+    }
 }
 
 fn partitions_summary(parts: &[Partition]) -> String {
     parts
         .iter()
-        .map(|p| format!("{} \u{2192} {} ({}{})", p.dev, p.point, p.fs, if p.format { ", format" } else { "" }))
+        .map(|p| {
+            format!(
+                "{} \u{2192} {} ({}{})",
+                p.dev,
+                p.point,
+                p.fs,
+                if p.format { ", format" } else { "" }
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -58,14 +116,22 @@ fn swap_summary(config: &InstallConfig) -> String {
 }
 
 fn root_filesystem(parts: &[Partition]) -> String {
-    parts.iter().find(|p| p.point == "/").map(|p| p.fs.clone()).unwrap_or_default()
+    parts
+        .iter()
+        .find(|p| p.point == "/")
+        .map(|p| p.fs.clone())
+        .unwrap_or_default()
 }
 
 fn btrfs_summary(config: &InstallConfig) -> String {
     if root_filesystem(&config.partitions) != "btrfs" {
         return "N/A".to_string();
     }
-    let layout = if config.btrfs_flat { "Flat" } else { "Subvolumes (@, @home, @log, @pkg)" };
+    let layout = if config.btrfs_flat {
+        "Flat"
+    } else {
+        "Subvolumes (@, @home, @log, @pkg)"
+    };
     if config.btrfs_snapshots {
         format!("{layout} + snapshots")
     } else {
@@ -108,7 +174,12 @@ impl ReviewPage {
             .build();
         widget.append(&install_button);
 
-        Self { widget, group, rows: std::cell::RefCell::new(Vec::new()), install_button }
+        Self {
+            widget,
+            group,
+            rows: std::cell::RefCell::new(Vec::new()),
+            install_button,
+        }
     }
 
     pub fn set_config(&self, config: &InstallConfig) {
@@ -145,11 +216,21 @@ mod tests {
             mirror: "Default".to_string(),
             update: true,
             nonfree: false,
-            nvidia: false,
-            intel: false,
+            hw_drivers: false,
+            driver_set: crate::backend::config_schema::DriverSet::Generic,
             partitions: vec![
-                Partition { dev: "/dev/sda1".to_string(), point: "/boot/efi".to_string(), fs: "vfat".to_string(), format: true },
-                Partition { dev: "/dev/sda2".to_string(), point: "/".to_string(), fs: "btrfs".to_string(), format: true },
+                Partition {
+                    dev: "/dev/sda1".to_string(),
+                    point: "/boot/efi".to_string(),
+                    fs: "vfat".to_string(),
+                    format: true,
+                },
+                Partition {
+                    dev: "/dev/sda2".to_string(),
+                    point: "/".to_string(),
+                    fs: "btrfs".to_string(),
+                    format: true,
+                },
             ],
             bootloader_disk: "/dev/sda".to_string(),
             bootloader_type: "grub".to_string(),
@@ -186,7 +267,13 @@ mod tests {
     #[test]
     fn review_rows_includes_every_collected_choice() {
         let rows = review_rows(&sample_config());
-        for key in ["Display manager", "Auto login", "Nonfree repository", "NVIDIA driver", "Intel driver"] {
+        for key in [
+            "Display manager",
+            "Auto login",
+            "Nonfree repository",
+            "Hardware drivers",
+            "Initramfs drivers",
+        ] {
             assert!(rows.iter().any(|(k, _)| k == key), "missing row: {key}");
         }
     }

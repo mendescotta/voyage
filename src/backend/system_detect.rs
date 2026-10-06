@@ -195,9 +195,13 @@ pub fn detect_disks() -> Vec<Disk> {
     let output = Command::new("lsblk")
         .args(["-J", "-o", "NAME,SIZE,TYPE,MODEL,FSTYPE"])
         .output();
-    let Ok(output) = output else { return Vec::new() };
+    let Ok(output) = output else {
+        return Vec::new();
+    };
     let text = String::from_utf8_lossy(&output.stdout);
-    let Some(root) = lsblk_json::parse(&text) else { return Vec::new() };
+    let Some(root) = lsblk_json::parse(&text) else {
+        return Vec::new();
+    };
     let Some(devices) = root.get("blockdevices").and_then(|v| v.as_array()) else {
         return Vec::new();
     };
@@ -217,7 +221,11 @@ pub fn detect_disks() -> Vec<Disk> {
             .filter(|s| !s.is_empty())
             .unwrap_or("Virtual / Generic Disk")
             .to_string();
-        let size = device.get("size").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let size = device
+            .get("size")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
         let children = device
             .get("children")
@@ -227,8 +235,15 @@ pub fn detect_disks() -> Vec<Disk> {
                     .iter()
                     .filter(|c| c.get("type").and_then(|v| v.as_str()) == Some("part"))
                     .map(|c| DiskPartition {
-                        name: format!("/dev/{}", c.get("name").and_then(|v| v.as_str()).unwrap_or("")),
-                        size: c.get("size").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        name: format!(
+                            "/dev/{}",
+                            c.get("name").and_then(|v| v.as_str()).unwrap_or("")
+                        ),
+                        size: c
+                            .get("size")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         fstype: c
                             .get("fstype")
                             .and_then(|v| v.as_str())
@@ -254,11 +269,19 @@ pub fn parse_size_to_bytes(size_str: &str) -> u64 {
     if size_str.is_empty() {
         return 0;
     }
-    let units: &[(char, u64)] = &[('K', 1024), ('M', 1024u64.pow(2)), ('G', 1024u64.pow(3)), ('T', 1024u64.pow(4))];
+    let units: &[(char, u64)] = &[
+        ('K', 1024),
+        ('M', 1024u64.pow(2)),
+        ('G', 1024u64.pow(3)),
+        ('T', 1024u64.pow(4)),
+    ];
     let upper = size_str.to_uppercase();
     for (suffix, mult) in units {
         if let Some(prefix) = upper.strip_suffix(*suffix) {
-            return prefix.parse::<f64>().map(|v| (v * *mult as f64) as u64).unwrap_or(0);
+            return prefix
+                .parse::<f64>()
+                .map(|v| (v * *mult as f64) as u64)
+                .unwrap_or(0);
         }
     }
     size_str.parse::<f64>().map(|v| v as u64).unwrap_or(0)
@@ -306,17 +329,25 @@ pub fn check_disk_health(disk_dev: &str) -> DiskHealth {
 }
 
 fn check_structure(disk_dev: &str) -> (HealthStatus, String) {
-    let output = Command::new("lsblk").args(["-dno", "PTTYPE", disk_dev]).output();
+    let output = Command::new("lsblk")
+        .args(["-dno", "PTTYPE", disk_dev])
+        .output();
     match output {
         Ok(out) if out.status.success() => interpret_pttype(&String::from_utf8_lossy(&out.stdout)),
-        _ => (HealthStatus::Unknown, "Could not read partition table (lsblk unavailable).".to_string()),
+        _ => (
+            HealthStatus::Unknown,
+            "Could not read partition table (lsblk unavailable).".to_string(),
+        ),
     }
 }
 
 fn interpret_pttype(raw: &str) -> (HealthStatus, String) {
     let pttype = raw.lines().next().unwrap_or("").trim();
     if pttype.is_empty() {
-        (HealthStatus::Ok, "No partition table yet (blank disk).".to_string())
+        (
+            HealthStatus::Ok,
+            "No partition table yet (blank disk).".to_string(),
+        )
     } else {
         (HealthStatus::Ok, format!("Partition table: {pttype}"))
     }
@@ -329,7 +360,10 @@ fn check_hardware(disk_dev: &str) -> (HealthStatus, String) {
             let exit_code = out.status.code().unwrap_or(-1);
             interpret_smartctl(exit_code, &String::from_utf8_lossy(&out.stdout))
         }
-        Err(_) => (HealthStatus::Unknown, "smartctl not installed; hardware health unknown.".to_string()),
+        Err(_) => (
+            HealthStatus::Unknown,
+            "smartctl not installed; hardware health unknown.".to_string(),
+        ),
     }
 }
 
@@ -337,13 +371,15 @@ fn interpret_smartctl(exit_code: i32, stdout: &str) -> (HealthStatus, String) {
     if exit_code & 0x07 != 0 {
         return (
             HealthStatus::Unknown,
-            "smartctl could not check this disk (missing permissions or unsupported device).".to_string(),
+            "smartctl could not check this disk (missing permissions or unsupported device)."
+                .to_string(),
         );
     }
     if exit_code & 0xf8 != 0 {
         return (
             HealthStatus::Warn,
-            "SMART reported a possible issue; check with smartctl -a before proceeding.".to_string(),
+            "SMART reported a possible issue; check with smartctl -a before proceeding."
+                .to_string(),
         );
     }
     let passed = stdout.lines().any(|line| {
@@ -353,7 +389,10 @@ fn interpret_smartctl(exit_code: i32, stdout: &str) -> (HealthStatus, String) {
     if passed {
         (HealthStatus::Ok, "SMART health check passed.".to_string())
     } else {
-        (HealthStatus::Unknown, "SMART status unclear; check manually if concerned.".to_string())
+        (
+            HealthStatus::Unknown,
+            "SMART status unclear; check manually if concerned.".to_string(),
+        )
     }
 }
 
@@ -372,7 +411,9 @@ pub fn detect_timezones() -> BTreeMap<String, Vec<String>> {
         if !entry.path().is_dir() || ignore.contains(&region.as_str()) {
             continue;
         }
-        let Ok(cities) = fs::read_dir(entry.path()) else { continue };
+        let Ok(cities) = fs::read_dir(entry.path()) else {
+            continue;
+        };
         let mut city_names: Vec<String> = cities
             .flatten()
             .filter(|c| c.path().is_file())
@@ -403,7 +444,9 @@ pub fn detect_keymaps() -> Vec<String> {
 }
 
 fn collect_map_gz_files(dir: &Path, out: &mut Vec<String>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -467,7 +510,12 @@ pub fn detect_display_manager() -> Option<String> {
 
 pub fn detect_timezone_from_network(timeout: Duration) -> Option<String> {
     let agent = ureq::AgentBuilder::new().timeout(timeout).build();
-    let body = agent.get("https://ipwho.is/").call().ok()?.into_string().ok()?;
+    let body = agent
+        .get("https://ipwho.is/")
+        .call()
+        .ok()?
+        .into_string()
+        .ok()?;
     let value = lsblk_json::parse(&body)?;
     let tz = value.get("timezone")?.get("id")?.as_str()?;
     if tz.contains('/') {
@@ -541,14 +589,19 @@ mod tests {
 
     #[test]
     fn interpret_smartctl_real_failure_is_warn() {
-        let (status, _) = interpret_smartctl(8, "SMART overall-health self-assessment test result: FAILED");
+        let (status, _) = interpret_smartctl(
+            8,
+            "SMART overall-health self-assessment test result: FAILED",
+        );
         assert_eq!(status, HealthStatus::Warn);
     }
 
     #[test]
     fn interpret_smartctl_passed_result_line_is_ok() {
-        let (status, note) =
-            interpret_smartctl(0, "SMART overall-health self-assessment test result: PASSED\n");
+        let (status, note) = interpret_smartctl(
+            0,
+            "SMART overall-health self-assessment test result: PASSED\n",
+        );
         assert_eq!(status, HealthStatus::Ok);
         assert_eq!(note, "SMART health check passed.");
     }

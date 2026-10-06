@@ -1,5 +1,5 @@
-use gtk::prelude::*;
 use gtk::gio;
+use gtk::prelude::*;
 
 use super::{row_common, string_list};
 
@@ -13,7 +13,12 @@ pub fn new_app(id: &str) -> App {
 }
 
 pub fn new_window(app: &App, title: &str, width: i32, height: i32) -> Window {
-    gtk::ApplicationWindow::builder().application(app).title(title).default_width(width).default_height(height).build()
+    gtk::ApplicationWindow::builder()
+        .application(app)
+        .title(title)
+        .default_width(width)
+        .default_height(height)
+        .build()
 }
 
 pub fn set_window_content(window: &Window, header: &gtk::HeaderBar, body: &gtk::Widget) {
@@ -22,11 +27,15 @@ pub fn set_window_content(window: &Window, header: &gtk::HeaderBar, body: &gtk::
 }
 
 fn root_window(widget: &impl IsA<gtk::Widget>) -> Option<gtk::Window> {
-    widget.root().and_then(|root| root.downcast::<gtk::Window>().ok())
+    widget
+        .root()
+        .and_then(|root| root.downcast::<gtk::Window>().ok())
 }
 
 pub fn alert(widget: &impl IsA<gtk::Widget>, heading: &str, body: &str) {
-    let Some(window) = root_window(widget) else { return };
+    let Some(window) = root_window(widget) else {
+        return;
+    };
     gtk::AlertDialog::builder()
         .message(heading)
         .detail(body)
@@ -44,7 +53,9 @@ pub fn confirm(
     confirm_label: &str,
     on_confirm: impl FnOnce() + 'static,
 ) {
-    let Some(window) = root_window(widget) else { return };
+    let Some(window) = root_window(widget) else {
+        return;
+    };
     gtk::AlertDialog::builder()
         .message(heading)
         .detail(body)
@@ -82,8 +93,17 @@ pub struct Group {
 
 impl Group {
     pub fn new(title: &str) -> Self {
-        let root = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(6).build();
-        root.append(&gtk::Label::builder().label(title).halign(gtk::Align::Start).css_classes(["heading"]).build());
+        let root = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .build();
+        root.append(
+            &gtk::Label::builder()
+                .label(title)
+                .halign(gtk::Align::Start)
+                .css_classes(["heading"])
+                .build(),
+        );
         let list = gtk::ListBox::builder()
             .selection_mode(gtk::SelectionMode::None)
             .css_classes(["rich-list", "voyage-group"])
@@ -103,17 +123,35 @@ impl Group {
 }
 row_common!(Group, root);
 
-fn base_row(title: &str, child: Option<&gtk::Widget>, vertical: bool) -> (gtk::ListBoxRow, gtk::Label, gtk::Label, gtk::Box) {
+fn base_row(
+    title: &str,
+    child: Option<&gtk::Widget>,
+    vertical: bool,
+) -> (gtk::ListBoxRow, gtk::Label, gtk::Label, gtk::Box) {
     let outer = gtk::Box::builder()
-        .orientation(if vertical { gtk::Orientation::Vertical } else { gtk::Orientation::Horizontal })
+        .orientation(if vertical {
+            gtk::Orientation::Vertical
+        } else {
+            gtk::Orientation::Horizontal
+        })
         .spacing(if vertical { 4 } else { 12 })
         .margin_top(8)
         .margin_bottom(8)
         .margin_start(12)
         .margin_end(12)
         .build();
-    let text = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).hexpand(true).valign(gtk::Align::Center).build();
-    let title_label = gtk::Label::builder().label(title).halign(gtk::Align::Start).wrap(true).xalign(0.0).build();
+    let text = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(2)
+        .hexpand(true)
+        .valign(gtk::Align::Center)
+        .build();
+    let title_label = gtk::Label::builder()
+        .label(title)
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
     let subtitle = gtk::Label::builder()
         .halign(gtk::Align::Start)
         .wrap(true)
@@ -127,7 +165,11 @@ fn base_row(title: &str, child: Option<&gtk::Widget>, vertical: bool) -> (gtk::L
     if let Some(child) = child {
         outer.append(child);
     }
-    let row = gtk::ListBoxRow::builder().activatable(false).selectable(false).child(&outer).build();
+    let row = gtk::ListBoxRow::builder()
+        .activatable(false)
+        .selectable(false)
+        .child(&outer)
+        .build();
     (row, title_label, subtitle, outer)
 }
 
@@ -146,7 +188,11 @@ pub struct ActionRow {
 impl ActionRow {
     pub fn new(title: &str) -> Self {
         let (row, _t, subtitle, outer) = base_row(title, None, false);
-        Self { row, outer, subtitle }
+        Self {
+            row,
+            outer,
+            subtitle,
+        }
     }
 
     pub fn set_subtitle(&self, text: &str) {
@@ -155,10 +201,23 @@ impl ActionRow {
 
     /// A row that only holds one widget (no title).
     pub fn with_child(child: &gtk::Widget) -> Self {
-        let outer = gtk::Box::builder().margin_top(8).margin_bottom(8).margin_start(12).margin_end(12).build();
+        let outer = gtk::Box::builder()
+            .margin_top(8)
+            .margin_bottom(8)
+            .margin_start(12)
+            .margin_end(12)
+            .build();
         outer.append(child);
-        let row = gtk::ListBoxRow::builder().activatable(false).selectable(false).child(&outer).build();
-        Self { row, outer, subtitle: gtk::Label::new(None) }
+        let row = gtk::ListBoxRow::builder()
+            .activatable(false)
+            .selectable(false)
+            .child(&outer)
+            .build();
+        Self {
+            row,
+            outer,
+            subtitle: gtk::Label::new(None),
+        }
     }
 
     pub fn add_suffix(&self, widget: &gtk::Widget) {
@@ -175,7 +234,10 @@ pub struct ComboRow {
 
 impl ComboRow {
     pub fn new(title: &str, items: &[String]) -> Self {
-        let drop = gtk::DropDown::builder().model(&string_list(items)).valign(gtk::Align::Center).build();
+        let drop = gtk::DropDown::builder()
+            .model(&string_list(items))
+            .valign(gtk::Align::Center)
+            .build();
         let (row, _t, _s, _o) = base_row(title, Some(drop.upcast_ref()), false);
         Self { row, drop }
     }
@@ -213,7 +275,11 @@ impl SwitchRow {
     pub fn new(title: &str) -> Self {
         let switch = gtk::Switch::builder().valign(gtk::Align::Center).build();
         let (row, _t, subtitle, _o) = base_row(title, Some(switch.upcast_ref()), false);
-        Self { row, switch, subtitle }
+        Self {
+            row,
+            switch,
+            subtitle,
+        }
     }
 
     pub fn set_subtitle(&self, text: &str) {
@@ -243,11 +309,17 @@ pub struct EntryRow {
 
 impl EntryRow {
     fn build(title: &str, entry: gtk::Widget) -> Self {
-        let editable = entry.clone().dynamic_cast::<gtk::Editable>().expect("entries are editable");
+        let editable = entry
+            .clone()
+            .dynamic_cast::<gtk::Editable>()
+            .expect("entries are editable");
         entry.set_hexpand(true);
         let (row, _t, _s, outer) = base_row(title, None, true);
         outer.append(&entry);
-        Self { row, entry: editable }
+        Self {
+            row,
+            entry: editable,
+        }
     }
 
     pub fn new(title: &str, text: &str) -> Self {
@@ -277,9 +349,22 @@ pub struct Banner {
 
 impl Banner {
     pub fn new(text: &str) -> Self {
-        let label = gtk::Label::builder().label(text).wrap(true).margin_top(8).margin_bottom(8).margin_start(12).margin_end(12).build();
-        let frame = gtk::Frame::builder().css_classes(["voyage-banner"]).child(&label).build();
-        let root = gtk::Revealer::builder().reveal_child(true).child(&frame).build();
+        let label = gtk::Label::builder()
+            .label(text)
+            .wrap(true)
+            .margin_top(8)
+            .margin_bottom(8)
+            .margin_start(12)
+            .margin_end(12)
+            .build();
+        let frame = gtk::Frame::builder()
+            .css_classes(["voyage-banner"])
+            .child(&label)
+            .build();
+        let root = gtk::Revealer::builder()
+            .reveal_child(true)
+            .child(&frame)
+            .build();
         Self { root }
     }
 }

@@ -6,7 +6,11 @@ pub mod window;
 /// Compiled into the binary so the theme also loads on an installed system.
 /// The plain GTK4 build follows the desktop theme; the libadwaita build adds its dark palette.
 #[cfg(feature = "adwaita")]
-pub const STYLE_CSS: &str = concat!(include_str!("style-adwaita.css"), "\n", include_str!("style.css"));
+pub const STYLE_CSS: &str = concat!(
+    include_str!("style-adwaita.css"),
+    "\n",
+    include_str!("style.css")
+);
 #[cfg(not(feature = "adwaita"))]
 pub const STYLE_CSS: &str = include_str!("style.css");
 

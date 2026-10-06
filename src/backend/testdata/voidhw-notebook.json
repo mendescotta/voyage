@@ -1,0 +1,47 @@
+{
+  "chassis": "notebook",
+  "cpu_vendor": "GenuineIntel",
+  "hybrid_graphics": false,
+  "hypervisor": null,
+  "devices": [
+    {
+      "address": "0000:00:14.3",
+      "id": "8086:a370",
+      "class": "0280",
+      "profile": "wifi-intel-firmware"
+    },
+    {
+      "address": "0000:01:00.0",
+      "id": "10de:2191",
+      "class": "0300",
+      "profile": "nvidia-current"
+    }
+  ],
+  "profiles": [
+    "wifi-intel-firmware",
+    "nvidia-current",
+    "intel-microcode",
+    "notebook-power"
+  ],
+  "repos": [
+    "nonfree"
+  ],
+  "packages": [
+    "linux-firmware-intel",
+    "nvidia",
+    "intel-ucode",
+    "power-profiles-daemon"
+  ],
+  "services": [
+    "power-profiles-daemon"
+  ],
+  "files": [
+    {
+      "path": "/etc/modprobe.d/voidhw-nvidia-drm.conf",
+      "content": "options nvidia_drm modeset=1 fbdev=1\n"
+    }
+  ],
+  "notes": [
+    "Regenerate the initramfs (xbps-reconfigure -f linux<version>) for the microcode to load early."
+  ]
+}

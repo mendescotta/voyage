@@ -3,9 +3,9 @@ mod ui;
 
 use std::env;
 
-use gtk::prelude::*;
 use gtk::gdk;
 use gtk::glib;
+use gtk::prelude::*;
 
 use backend::system_detect;
 use ui::SysData;
@@ -14,7 +14,11 @@ fn load_theme() {
     let provider = gtk::CssProvider::new();
     provider.load_from_string(ui::STYLE_CSS);
     if let Some(display) = gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
     }
 }
 

@@ -16,8 +16,7 @@ fn status_label(token: &str) -> &str {
         "UPDATE_INSTALL" => "Installing updates...",
         "MIRROR" => "Configuring repository server...",
         "NON-FREE" => "Configuring proprietary software repositories.",
-        "NVIDIA" => "Installing NVIDIA drivers...",
-        "INTEL" => "Installing Intel microcode...",
+        "HARDWARE" => "Installing drivers for this hardware...",
         "USER_CONFIG" => "Creating users and passwords...",
         "GRUB_INSTALL" => "Installing the boot loader...",
         "REMOVE_PACKAGES" => "Removing selected packages...",
@@ -43,25 +42,40 @@ impl InstallationPage {
             .margin_end(24)
             .build();
 
-        let status_label = gtk::Label::builder().label("Preparing to install...").css_classes(["title-4"]).build();
+        let status_label = gtk::Label::builder()
+            .label("Preparing to install...")
+            .css_classes(["title-4"])
+            .build();
         widget.append(&status_label);
 
         let progress_bar = gtk::ProgressBar::builder().show_text(true).build();
         widget.append(&progress_bar);
 
         let log_scroller = gtk::ScrolledWindow::builder().vexpand(true).build();
-        let log_view = gtk::TextView::builder().editable(false).monospace(true).build();
+        let log_view = gtk::TextView::builder()
+            .editable(false)
+            .monospace(true)
+            .build();
         log_scroller.set_child(Some(&log_view));
         widget.append(&log_scroller);
 
-        Self { widget, status_label, progress_bar, log_view }
+        Self {
+            widget,
+            status_label,
+            progress_bar,
+            log_view,
+        }
     }
 
     pub fn start<F>(&self, config: InstallConfig, demo: bool, on_finished: F)
     where
         F: Fn(bool, String) + 'static,
     {
-        self.status_label.set_text(if demo { "Starting simulation (demo mode)..." } else { "Starting installation engine (Root)..." });
+        self.status_label.set_text(if demo {
+            "Starting simulation (demo mode)..."
+        } else {
+            "Starting installation engine (Root)..."
+        });
 
         let (tx, rx) = async_channel::unbounded::<InstallEvent>();
         let runner = InstallRunner::new(config, demo);

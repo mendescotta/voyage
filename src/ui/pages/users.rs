@@ -95,10 +95,16 @@ impl UsersPage {
         };
 
         if userpassword != self.userpassword_confirm_row.text() {
-            errors.push(("userpassword".to_string(), "User passwords do not match.".to_string()));
+            errors.push((
+                "userpassword".to_string(),
+                "User passwords do not match.".to_string(),
+            ));
         }
         if !same_password && rootpassword != self.rootpassword_confirm_row.text() {
-            errors.push(("rootpassword".to_string(), "Root passwords do not match.".to_string()));
+            errors.push((
+                "rootpassword".to_string(),
+                "Root passwords do not match.".to_string(),
+            ));
         }
 
         let fields = UsersFields {
@@ -119,7 +125,10 @@ fn configure_autologin(row: &SwitchRow, display_manager: Option<&str>) {
         "sddm" | "lightdm" | "gdm" => {
             row.set_sensitive(true);
             row.set_visible(true);
-            row.set_subtitle(&format!("Available via {display_manager}.", display_manager = display_manager.unwrap_or("")));
+            row.set_subtitle(&format!(
+                "Available via {display_manager}.",
+                display_manager = display_manager.unwrap_or("")
+            ));
         }
         "greetd" => {
             row.set_active(false);

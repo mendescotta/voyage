@@ -39,7 +39,11 @@ impl WelcomePage {
             .margin_end(24)
             .build();
 
-        let logo = gtk::Image::builder().icon_name("org.voidlinux.voyage").pixel_size(80).halign(gtk::Align::Center).build();
+        let logo = gtk::Image::builder()
+            .icon_name("org.voidlinux.voyage")
+            .pixel_size(80)
+            .halign(gtk::Align::Center)
+            .build();
         widget.append(&logo);
 
         let heading = gtk::Label::builder()
@@ -56,15 +60,28 @@ impl WelcomePage {
         let language_names: Vec<String> = locales_list
             .iter()
             .map(|loc| {
-                let lang_code = loc.split('.').next().unwrap_or(loc).split('_').next().unwrap_or(loc);
+                let lang_code = loc
+                    .split('.')
+                    .next()
+                    .unwrap_or(loc)
+                    .split('_')
+                    .next()
+                    .unwrap_or(loc);
                 let name = locales::language_name(lang_code);
-                if name.is_empty() { loc.clone() } else { name }
+                if name.is_empty() {
+                    loc.clone()
+                } else {
+                    name
+                }
             })
             .collect();
         let locale_row = ComboRow::new("System language", &language_names);
         locale_group.add(&locale_row);
         widget.append(locale_group.as_ref());
-        let default_locale_idx = locales_list.iter().position(|l| l.starts_with("en_US")).unwrap_or(0);
+        let default_locale_idx = locales_list
+            .iter()
+            .position(|l| l.starts_with("en_US"))
+            .unwrap_or(0);
         locale_row.set_selected(default_locale_idx as u32);
 
         let mut zones = system_detect::detect_timezones();
@@ -114,7 +131,9 @@ impl WelcomePage {
             region_row.connect_selected(move |row| {
                 let inner = inner.borrow();
                 let selected = row.selected() as usize;
-                let Some(region) = inner.regions.get(selected) else { return };
+                let Some(region) = inner.regions.get(selected) else {
+                    return;
+                };
                 let cities = inner.zones.get(region).cloned().unwrap_or_default();
                 city_row.set_items(&cities);
             });
@@ -136,7 +155,14 @@ impl WelcomePage {
             });
         }
 
-        Self { widget, locale_row, region_row, city_row, keymap_row, inner }
+        Self {
+            widget,
+            locale_row,
+            region_row,
+            city_row,
+            keymap_row,
+            inner,
+        }
     }
 
     pub fn collect(&self) -> (WelcomeFields, Vec<(String, String)>) {
@@ -153,12 +179,25 @@ impl WelcomePage {
     }
 }
 
-fn apply_network_timezone(inner: &Rc<RefCell<Inner>>, region_row: &ComboRow, city_row: &ComboRow, tz: &str) {
-    let Some((region, city)) = tz.split_once('/') else { return };
+fn apply_network_timezone(
+    inner: &Rc<RefCell<Inner>>,
+    region_row: &ComboRow,
+    city_row: &ComboRow,
+    tz: &str,
+) {
+    let Some((region, city)) = tz.split_once('/') else {
+        return;
+    };
     let inner_ref = inner.borrow();
-    let Some(region_idx) = inner_ref.regions.iter().position(|r| r == region) else { return };
-    let Some(cities) = inner_ref.zones.get(region) else { return };
-    let Some(city_idx) = cities.iter().position(|c| c == city) else { return };
+    let Some(region_idx) = inner_ref.regions.iter().position(|r| r == region) else {
+        return;
+    };
+    let Some(cities) = inner_ref.zones.get(region) else {
+        return;
+    };
+    let Some(city_idx) = cities.iter().position(|c| c == city) else {
+        return;
+    };
     let cities = cities.clone();
     drop(inner_ref);
 

@@ -15,7 +15,12 @@ pub fn new_app(id: &str) -> App {
 }
 
 pub fn new_window(app: &App, title: &str, width: i32, height: i32) -> Window {
-    adw::ApplicationWindow::builder().application(app).title(title).default_width(width).default_height(height).build()
+    adw::ApplicationWindow::builder()
+        .application(app)
+        .title(title)
+        .default_width(width)
+        .default_height(height)
+        .build()
 }
 
 pub fn set_window_content(window: &Window, header: &gtk::HeaderBar, body: &gtk::Widget) {
@@ -26,7 +31,10 @@ pub fn set_window_content(window: &Window, header: &gtk::HeaderBar, body: &gtk::
 }
 
 pub fn alert(widget: &impl IsA<gtk::Widget>, heading: &str, body: &str) {
-    let dialog = adw::AlertDialog::builder().heading(heading).body(body).build();
+    let dialog = adw::AlertDialog::builder()
+        .heading(heading)
+        .body(body)
+        .build();
     dialog.add_response("ok", "OK");
     dialog.present(Some(widget));
 }
@@ -39,7 +47,10 @@ pub fn confirm(
     confirm_label: &str,
     on_confirm: impl FnOnce() + 'static,
 ) {
-    let dialog = adw::AlertDialog::builder().heading(heading).body(body).build();
+    let dialog = adw::AlertDialog::builder()
+        .heading(heading)
+        .body(body)
+        .build();
     dialog.add_response("cancel", "Cancel");
     dialog.add_response("continue", confirm_label);
     dialog.set_response_appearance("continue", adw::ResponseAppearance::Destructive);
@@ -111,7 +122,12 @@ pub struct ComboRow(adw::ComboRow);
 
 impl ComboRow {
     pub fn new(title: &str, items: &[String]) -> Self {
-        Self(adw::ComboRow::builder().title(title).model(&string_list(items)).build())
+        Self(
+            adw::ComboRow::builder()
+                .title(title)
+                .model(&string_list(items))
+                .build(),
+        )
     }
 
     pub fn set_items(&self, items: &[String]) {
@@ -172,12 +188,18 @@ pub struct EntryRow {
 impl EntryRow {
     pub fn new(title: &str, text: &str) -> Self {
         let row = adw::EntryRow::builder().title(title).text(text).build();
-        Self { entry: row.clone().upcast(), widget: row.upcast() }
+        Self {
+            entry: row.clone().upcast(),
+            widget: row.upcast(),
+        }
     }
 
     pub fn password(title: &str) -> Self {
         let row = adw::PasswordEntryRow::builder().title(title).build();
-        Self { entry: row.clone().upcast(), widget: row.upcast() }
+        Self {
+            entry: row.clone().upcast(),
+            widget: row.upcast(),
+        }
     }
 
     pub fn text(&self) -> String {

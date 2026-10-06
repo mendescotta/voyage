@@ -4,6 +4,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 
 use crate::backend::config_schema::{build_config, InstallFields};
+use crate::ui::nav::*;
 use crate::ui::pages::completion::CompletionPage;
 use crate::ui::pages::disks::DisksPage;
 use crate::ui::pages::installation::InstallationPage;
@@ -11,7 +12,6 @@ use crate::ui::pages::mirrors::MirrorsPage;
 use crate::ui::pages::review::ReviewPage;
 use crate::ui::pages::users::UsersPage;
 use crate::ui::pages::welcome::WelcomePage;
-use crate::ui::nav::*;
 use crate::ui::widgets::{self, Window};
 use crate::ui::{pages, SysData};
 
@@ -58,19 +58,60 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
     let completion = CompletionPage::new();
 
     let stack = gtk::Stack::new();
-    stack.add_titled(&scrollable(&welcome.widget), Some(pages::welcome::TITLE), pages::welcome::TITLE);
-    stack.add_titled(&scrollable(&mirrors.widget), Some(pages::mirrors::TITLE), pages::mirrors::TITLE);
-    stack.add_titled(&scrollable(&users.widget), Some(pages::users::TITLE), pages::users::TITLE);
-    stack.add_titled(&scrollable(&disks.widget), Some(pages::disks::TITLE), pages::disks::TITLE);
-    stack.add_titled(&scrollable(&review.widget), Some(pages::review::TITLE), pages::review::TITLE);
-    stack.add_titled(&installation.widget, Some(pages::installation::TITLE), pages::installation::TITLE);
-    stack.add_titled(&completion.widget, Some(pages::completion::TITLE), pages::completion::TITLE);
+    stack.add_titled(
+        &scrollable(&welcome.widget),
+        Some(pages::welcome::TITLE),
+        pages::welcome::TITLE,
+    );
+    stack.add_titled(
+        &scrollable(&mirrors.widget),
+        Some(pages::mirrors::TITLE),
+        pages::mirrors::TITLE,
+    );
+    stack.add_titled(
+        &scrollable(&users.widget),
+        Some(pages::users::TITLE),
+        pages::users::TITLE,
+    );
+    stack.add_titled(
+        &scrollable(&disks.widget),
+        Some(pages::disks::TITLE),
+        pages::disks::TITLE,
+    );
+    stack.add_titled(
+        &scrollable(&review.widget),
+        Some(pages::review::TITLE),
+        pages::review::TITLE,
+    );
+    stack.add_titled(
+        &installation.widget,
+        Some(pages::installation::TITLE),
+        pages::installation::TITLE,
+    );
+    stack.add_titled(
+        &completion.widget,
+        Some(pages::completion::TITLE),
+        pages::completion::TITLE,
+    );
 
-    let tab_titles = [pages::welcome::TITLE, pages::mirrors::TITLE, pages::users::TITLE, pages::disks::TITLE, pages::review::TITLE];
-    let tab_bar = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).css_classes(["voyage-tabs"]).build();
+    let tab_titles = [
+        pages::welcome::TITLE,
+        pages::mirrors::TITLE,
+        pages::users::TITLE,
+        pages::disks::TITLE,
+        pages::review::TITLE,
+    ];
+    let tab_bar = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .css_classes(["voyage-tabs"])
+        .build();
     let mut tabs: Vec<gtk::ToggleButton> = Vec::new();
     for title in tab_titles {
-        let tab = gtk::ToggleButton::builder().label(title).has_frame(false).hexpand(true).build();
+        let tab = gtk::ToggleButton::builder()
+            .label(title)
+            .has_frame(false)
+            .hexpand(true)
+            .build();
         if let Some(first) = tabs.first() {
             tab.set_group(Some(first));
         }
@@ -79,13 +120,23 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
     }
 
     let header_bar = gtk::HeaderBar::new();
-    let about_button = gtk::Button::builder().icon_name("help-about-symbolic").tooltip_text("About").build();
+    let about_button = gtk::Button::builder()
+        .icon_name("help-about-symbolic")
+        .tooltip_text("About")
+        .build();
     header_bar.pack_end(&about_button);
 
-    let panel = gtk::Frame::builder().css_classes(["voyage-panel"]).vexpand(true).child(&stack).build();
+    let panel = gtk::Frame::builder()
+        .css_classes(["voyage-panel"])
+        .vexpand(true)
+        .child(&stack)
+        .build();
 
     let back_button = gtk::Button::builder().label("Back").build();
-    let next_button = gtk::Button::builder().label("Next").css_classes(["suggested-action"]).build();
+    let next_button = gtk::Button::builder()
+        .label("Next")
+        .css_classes(["suggested-action"])
+        .build();
 
     let bottom_bar = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -99,7 +150,9 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
     bottom_bar.append(&gtk::Box::builder().hexpand(true).build());
     bottom_bar.append(&next_button);
 
-    let body = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
+    let body = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .build();
     body.append(&tab_bar);
     body.append(&panel);
     body.append(&bottom_bar);
@@ -186,7 +239,12 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
 /// Developer aid: with `VOYAGE_SCREENSHOTS=<dir>` the window visits each setup tab, saves a PNG
 /// of it to `<dir>/<n>-<title>.png`, then quits. Used to review the UI without a screen grabber.
 fn screenshot_tour(state: &Rc<RefCell<State>>, dir: std::path::PathBuf) {
-    let titles = [pages::welcome::TITLE, pages::mirrors::TITLE, pages::users::TITLE, pages::disks::TITLE];
+    let titles = [
+        pages::welcome::TITLE,
+        pages::mirrors::TITLE,
+        pages::users::TITLE,
+        pages::disks::TITLE,
+    ];
     let _ = std::fs::create_dir_all(&dir);
     let state = state.clone();
     let step = std::cell::Cell::new(0usize);
@@ -196,10 +254,23 @@ fn screenshot_tour(state: &Rc<RefCell<State>>, dir: std::path::PathBuf) {
             let s = state.borrow();
             let paintable = gtk::WidgetPaintable::new(Some(&s.window));
             let snapshot = gtk::Snapshot::new();
-            paintable.snapshot(&snapshot, f64::from(s.window.width()), f64::from(s.window.height()));
-            if let (Some(node), Some(renderer)) = (snapshot.to_node(), s.window.native().and_then(|n| n.renderer())) {
-                let name = format!("{}-{}.png", n - 1, titles[n - 1].replace(' ', "-").to_lowercase());
-                let _ = renderer.render_texture(&node, None).save_to_png(dir.join(name));
+            paintable.snapshot(
+                &snapshot,
+                f64::from(s.window.width()),
+                f64::from(s.window.height()),
+            );
+            if let (Some(node), Some(renderer)) = (
+                snapshot.to_node(),
+                s.window.native().and_then(|n| n.renderer()),
+            ) {
+                let name = format!(
+                    "{}-{}.png",
+                    n - 1,
+                    titles[n - 1].replace(' ', "-").to_lowercase()
+                );
+                let _ = renderer
+                    .render_texture(&node, None)
+                    .save_to_png(dir.join(name));
             }
         }
         if n >= titles.len() {
@@ -236,11 +307,14 @@ fn update_nav(state: &Rc<RefCell<State>>) {
 
     let is_install_step = page == INSTALLATION;
     let is_review_step = page == REVIEW;
-    s.back_button.set_sensitive(page > 0 && page < PAGE_COUNT - 1 && !is_install_step);
+    s.back_button
+        .set_sensitive(page > 0 && page < PAGE_COUNT - 1 && !is_install_step);
 
     let is_last = page == PAGE_COUNT - 1;
-    s.next_button.set_visible(!is_install_step && !is_review_step);
-    s.next_button.set_label(if is_last { "Restart" } else { "Next" });
+    s.next_button
+        .set_visible(!is_install_step && !is_review_step);
+    s.next_button
+        .set_label(if is_last { "Restart" } else { "Next" });
 
     s.tab_bar.set_visible(tabs_visible(page));
     for (i, tab) in s.tabs.iter().enumerate() {
@@ -300,7 +374,9 @@ fn go_review(state: &Rc<RefCell<State>>) {
     update_nav(state);
 }
 
-fn collect_all(state: &Rc<RefCell<State>>) -> Result<crate::backend::config_schema::InstallConfig, Vec<(String, String)>> {
+fn collect_all(
+    state: &Rc<RefCell<State>>,
+) -> Result<crate::backend::config_schema::InstallConfig, Vec<(String, String)>> {
     let s = state.borrow();
     let (welcome_fields, mut errors) = s.welcome.collect();
     let (mirrors_fields, mirrors_errors) = s.mirrors.collect();
@@ -328,11 +404,15 @@ fn collect_all(state: &Rc<RefCell<State>>) -> Result<crate::backend::config_sche
         mirror: mirrors_fields.mirror,
         net: mirrors_fields.net,
         nonfree: mirrors_fields.nonfree,
-        nvidia: mirrors_fields.nvidia,
-        intel: mirrors_fields.intel,
+        hw_drivers: mirrors_fields.hw_drivers,
+        driver_set: mirrors_fields.driver_set,
     };
 
-    build_config(&fields, &disk_choices, s.sys_data.display_manager.as_deref().unwrap_or(""))
+    build_config(
+        &fields,
+        &disk_choices,
+        s.sys_data.display_manager.as_deref().unwrap_or(""),
+    )
 }
 
 fn start_install(state: &Rc<RefCell<State>>) {
@@ -352,18 +432,25 @@ fn start_install(state: &Rc<RefCell<State>>) {
 
     let demo = state.borrow().demo;
     let state_for_finish = state.clone();
-    state.borrow().installation.start(data, demo, move |success, message| {
-        {
-            let s = state_for_finish.borrow();
-            s.completion.set_result(success, &message);
-        }
-        state_for_finish.borrow_mut().current_index = COMPLETION;
-        update_nav(&state_for_finish);
-    });
+    state
+        .borrow()
+        .installation
+        .start(data, demo, move |success, message| {
+            {
+                let s = state_for_finish.borrow();
+                s.completion.set_result(success, &message);
+            }
+            state_for_finish.borrow_mut().current_index = COMPLETION;
+            update_nav(&state_for_finish);
+        });
 }
 
 fn show_errors(state: &Rc<RefCell<State>>, errors: &[(String, String)]) {
-    let body = errors.iter().map(|(_, message)| message.as_str()).collect::<Vec<_>>().join("\n");
+    let body = errors
+        .iter()
+        .map(|(_, message)| message.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     let s = state.borrow();
     widgets::alert(&s.window, "Please check your input", &body);
 }

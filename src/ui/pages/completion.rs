@@ -1,4 +1,3 @@
-
 use gtk::prelude::*;
 
 const LOG_PATH: &str = "/tmp/installation.log";
@@ -13,9 +12,17 @@ pub struct CompletionView {
 
 pub fn completion_view(success: bool) -> CompletionView {
     if success {
-        CompletionView { heading: "Installation complete", css_class: "success", icon_name: "emblem-ok-symbolic" }
+        CompletionView {
+            heading: "Installation complete",
+            css_class: "success",
+            icon_name: "emblem-ok-symbolic",
+        }
     } else {
-        CompletionView { heading: "Installation failed", css_class: "error", icon_name: "dialog-error-symbolic" }
+        CompletionView {
+            heading: "Installation failed",
+            css_class: "error",
+            icon_name: "dialog-error-symbolic",
+        }
     }
 }
 
@@ -39,7 +46,10 @@ impl CompletionPage {
         let icon = gtk::Image::builder().pixel_size(64).build();
         widget.append(&icon);
 
-        let heading = gtk::Label::builder().label("Installation complete").css_classes(["title-1"]).build();
+        let heading = gtk::Label::builder()
+            .label("Installation complete")
+            .css_classes(["title-1"])
+            .build();
         widget.append(&heading);
 
         let detail = gtk::Label::builder()
@@ -48,7 +58,11 @@ impl CompletionPage {
             .build();
         widget.append(&detail);
 
-        let log_button = gtk::Button::builder().label("View Log").halign(gtk::Align::Center).visible(false).build();
+        let log_button = gtk::Button::builder()
+            .label("View Log")
+            .halign(gtk::Align::Center)
+            .visible(false)
+            .build();
         widget.append(&log_button);
 
         let page_widget = widget.clone();
@@ -56,19 +70,38 @@ impl CompletionPage {
             let content = crate::backend::text::read_text_lossy(std::path::Path::new(LOG_PATH))
                 .unwrap_or_else(|e| format!("Could not read {LOG_PATH}: {e}"));
 
-            let text_view = gtk::TextView::builder().editable(false).monospace(true).build();
+            let text_view = gtk::TextView::builder()
+                .editable(false)
+                .monospace(true)
+                .build();
             text_view.buffer().set_text(&content);
-            let scroller = gtk::ScrolledWindow::builder().vexpand(true).hexpand(true).build();
+            let scroller = gtk::ScrolledWindow::builder()
+                .vexpand(true)
+                .hexpand(true)
+                .build();
             scroller.set_child(Some(&text_view));
 
-            let mut dialog = gtk::Window::builder().title("Installation Log").default_width(800).default_height(600).modal(true);
-            if let Some(parent) = page_widget.root().and_then(|root| root.downcast::<gtk::Window>().ok()) {
+            let mut dialog = gtk::Window::builder()
+                .title("Installation Log")
+                .default_width(800)
+                .default_height(600)
+                .modal(true);
+            if let Some(parent) = page_widget
+                .root()
+                .and_then(|root| root.downcast::<gtk::Window>().ok())
+            {
                 dialog = dialog.transient_for(&parent);
             }
             dialog.child(&scroller).build().present();
         });
 
-        Self { widget, icon, heading, detail, log_button }
+        Self {
+            widget,
+            icon,
+            heading,
+            detail,
+            log_button,
+        }
     }
 
     pub fn set_result(&self, success: bool, message: &str) {
@@ -82,7 +115,11 @@ impl CompletionPage {
         if success {
             self.detail.set_text("Your system has been installed successfully.\nClick 'Restart' to complete the process.");
         } else {
-            let text = if message.is_empty() { format!("Check {LOG_PATH} for details.") } else { message.to_string() };
+            let text = if message.is_empty() {
+                format!("Check {LOG_PATH} for details.")
+            } else {
+                message.to_string()
+            };
             self.detail.set_text(&text);
         }
         self.log_button.set_visible(true);

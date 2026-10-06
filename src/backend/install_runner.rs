@@ -69,17 +69,32 @@ pub fn generate_conf_file(config: &InstallConfig, conf_file: &str) -> std::io::R
         ("ROOTPASSWORD", config.rootpassword.clone()),
         ("USERGROUPS", config.usergroups.clone()),
         ("DISPLAYMANAGER", config.display_manager.clone()),
-        ("AUTOLOGIN", if config.autologin { "1" } else { "0" }.to_string()),
+        (
+            "AUTOLOGIN",
+            if config.autologin { "1" } else { "0" }.to_string(),
+        ),
         ("MIRROR", config.mirror.clone()),
         ("UPDATE", if config.update { "1" } else { "0" }.to_string()),
-        ("NONFREE", if config.nonfree { "1" } else { "0" }.to_string()),
-        ("NVIDIA", if config.nvidia { "1" } else { "0" }.to_string()),
-        ("INTEL", if config.intel { "1" } else { "0" }.to_string()),
+        (
+            "NONFREE",
+            if config.nonfree { "1" } else { "0" }.to_string(),
+        ),
+        (
+            "HWDRIVERS",
+            if config.hw_drivers { "1" } else { "0" }.to_string(),
+        ),
+        ("DRIVERSET", config.driver_set.as_conf_str().to_string()),
         ("BOOTLOADER", config.bootloader_disk.clone()),
         ("BOOTLOADER_TYPE", config.bootloader_type.clone()),
         ("SWAPTYPE", config.swap_strategy.clone()),
-        ("BTRFS_FLAT", if config.btrfs_flat { "1" } else { "0" }.to_string()),
-        ("BTRFS_SNAPSHOTS", if config.btrfs_snapshots { "1" } else { "0" }.to_string()),
+        (
+            "BTRFS_FLAT",
+            if config.btrfs_flat { "1" } else { "0" }.to_string(),
+        ),
+        (
+            "BTRFS_SNAPSHOTS",
+            if config.btrfs_snapshots { "1" } else { "0" }.to_string(),
+        ),
     ];
     for (key, value) in lines {
         writeln!(file, "{key} {}", escape_conf_value(&value))?;
@@ -144,7 +159,9 @@ impl InstallRunner {
                 return;
             }
             on_event(InstallEvent::Status((*token).to_string()));
-            on_event(InstallEvent::Log(format!("[DEMO] Simulating step: {token}")));
+            on_event(InstallEvent::Log(format!(
+                "[DEMO] Simulating step: {token}"
+            )));
             on_event(InstallEvent::Progress(*value));
             thread::sleep(Duration::from_millis(*delay_ms));
         }
@@ -154,7 +171,9 @@ impl InstallRunner {
     fn run_real<F: Fn(InstallEvent) + Send + Sync + 'static>(&self, on_event: &Arc<F>) {
         on_event(InstallEvent::Status("INIT".to_string()));
         if let Err(e) = generate_conf_file(&self.config, &self.conf_file) {
-            on_event(InstallEvent::Error(format!("Error writing the configuration: {e}")));
+            on_event(InstallEvent::Error(format!(
+                "Error writing the configuration: {e}"
+            )));
             return;
         }
 
@@ -168,20 +187,25 @@ impl InstallRunner {
         {
             Ok(c) => c,
             Err(e) => {
-                on_event(InstallEvent::Error(format!("Critical error running the backend: {e}")));
+                on_event(InstallEvent::Error(format!(
+                    "Critical error running the backend: {e}"
+                )));
                 return;
             }
         };
 
         let Some(stdout) = child.stdout.take() else {
-            on_event(InstallEvent::Error("Critical error running the backend: no stdout".to_string()));
+            on_event(InstallEvent::Error(
+                "Critical error running the backend: no stdout".to_string(),
+            ));
             return;
         };
         let reader = BufReader::new(stdout);
 
         let mut ramp_stop: Option<Arc<AtomicBool>> = None;
         let mut ramp_handle: Option<thread::JoinHandle<()>> = None;
-        let stop_ramp = |ramp_stop: &mut Option<Arc<AtomicBool>>, ramp_handle: &mut Option<thread::JoinHandle<()>>| {
+        let stop_ramp = |ramp_stop: &mut Option<Arc<AtomicBool>>,
+                         ramp_handle: &mut Option<thread::JoinHandle<()>>| {
             if let Some(flag) = ramp_stop.take() {
                 flag.store(true, Ordering::SeqCst);
             }
@@ -220,7 +244,10 @@ impl InstallRunner {
                 continue;
             }
 
-            if let Some((_, value)) = PROGRESS_MILESTONES.iter().find(|(token, _)| msg.contains(token)) {
+            if let Some((_, value)) = PROGRESS_MILESTONES
+                .iter()
+                .find(|(token, _)| msg.contains(token))
+            {
                 stop_ramp(&mut ramp_stop, &mut ramp_handle);
                 on_event(InstallEvent::Progress(*value));
             }
@@ -263,11 +290,21 @@ mod tests {
             mirror: "Default".to_string(),
             update: true,
             nonfree: false,
-            nvidia: false,
-            intel: false,
+            hw_drivers: false,
+            driver_set: crate::backend::config_schema::DriverSet::Generic,
             partitions: vec![
-                Partition { dev: "/dev/sda1".to_string(), point: "/boot/efi".to_string(), fs: "vfat".to_string(), format: true },
-                Partition { dev: "/dev/sda2".to_string(), point: "/".to_string(), fs: "ext4".to_string(), format: true },
+                Partition {
+                    dev: "/dev/sda1".to_string(),
+                    point: "/boot/efi".to_string(),
+                    fs: "vfat".to_string(),
+                    format: true,
+                },
+                Partition {
+                    dev: "/dev/sda2".to_string(),
+                    point: "/".to_string(),
+                    fs: "ext4".to_string(),
+                    format: true,
+                },
             ],
             bootloader_disk: "/dev/sda".to_string(),
             bootloader_type: "grub".to_string(),

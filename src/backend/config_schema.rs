@@ -12,6 +12,25 @@ pub struct RawPartitions {
     pub home: Option<String>,
 }
 
+/// Which drivers the installed system's initramfs carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DriverSet {
+    /// Everything: the disk can be moved to other hardware (Debian's "generic").
+    #[default]
+    Generic,
+    /// Only what this machine needs: smaller and faster to boot (Debian's "targeted").
+    Targeted,
+}
+
+impl DriverSet {
+    pub fn as_conf_str(self) -> &'static str {
+        match self {
+            DriverSet::Generic => "generic",
+            DriverSet::Targeted => "targeted",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Partition {
     pub dev: String,
@@ -35,8 +54,8 @@ pub struct InstallFields {
     pub mirror: String,
     pub net: bool,
     pub nonfree: bool,
-    pub nvidia: bool,
-    pub intel: bool,
+    pub hw_drivers: bool,
+    pub driver_set: DriverSet,
 }
 
 #[derive(Debug, Clone)]
@@ -55,8 +74,8 @@ pub struct InstallConfig {
     pub mirror: String,
     pub update: bool,
     pub nonfree: bool,
-    pub nvidia: bool,
-    pub intel: bool,
+    pub hw_drivers: bool,
+    pub driver_set: DriverSet,
     pub partitions: Vec<Partition>,
     pub bootloader_disk: String,
     pub bootloader_type: String,
@@ -78,7 +97,9 @@ fn hostname_valid(hostname: &str) -> bool {
     }
     is_alnum(bytes[0])
         && is_alnum(*bytes.last().unwrap())
-        && bytes[1..bytes.len() - 1].iter().all(|&c| is_alnum_or_hyphen(c))
+        && bytes[1..bytes.len() - 1]
+            .iter()
+            .all(|&c| is_alnum_or_hyphen(c))
 }
 
 fn username_valid(username: &str) -> bool {
@@ -106,16 +127,22 @@ fn is_gpt_without_bios_boot(disk_dev: &str) -> bool {
     let pttype_out = Command::new("lsblk")
         .args(["-dno", "PTTYPE", disk_dev])
         .output();
-    let Ok(pttype_out) = pttype_out else { return false };
+    let Ok(pttype_out) = pttype_out else {
+        return false;
+    };
     if !pttype_out.status.success() {
         return false;
     }
-    let pttype = String::from_utf8_lossy(&pttype_out.stdout).trim().to_string();
+    let pttype = String::from_utf8_lossy(&pttype_out.stdout)
+        .trim()
+        .to_string();
 
     let parttypes_out = Command::new("lsblk")
         .args(["-rno", "PARTTYPE", disk_dev])
         .output();
-    let Ok(parttypes_out) = parttypes_out else { return false };
+    let Ok(parttypes_out) = parttypes_out else {
+        return false;
+    };
     if !parttypes_out.status.success() {
         return false;
     }
@@ -175,7 +202,10 @@ pub fn build_partitions(
     let mut partitions = Vec::new();
 
     match &raw_parts.root {
-        None => errors.push(("root".to_string(), "You must select a Root (/) partition.".to_string())),
+        None => errors.push((
+            "root".to_string(),
+            "You must select a Root (/) partition.".to_string(),
+        )),
         Some(dev) => partitions.push(Partition {
             dev: dev.clone(),
             point: "/".to_string(),
@@ -186,7 +216,10 @@ pub fn build_partitions(
 
     if want_efi {
         match &raw_parts.efi {
-            None => errors.push(("efi".to_string(), "You must select an EFI (/boot/efi) partition.".to_string())),
+            None => errors.push((
+                "efi".to_string(),
+                "You must select an EFI (/boot/efi) partition.".to_string(),
+            )),
             Some(dev) => partitions.push(Partition {
                 dev: dev.clone(),
                 point: "/boot/efi".to_string(),
@@ -200,7 +233,8 @@ pub fn build_partitions(
         SwapStrategy::Partition => match &raw_parts.swap {
             None => errors.push((
                 "swap".to_string(),
-                "You must select a Swap partition, or choose a different swap strategy.".to_string(),
+                "You must select a Swap partition, or choose a different swap strategy."
+                    .to_string(),
             )),
             Some(dev) => partitions.push(Partition {
                 dev: dev.clone(),
@@ -230,7 +264,11 @@ pub fn build_partitions(
 
 fn validate_bootloader_choice(disk: &DiskChoices) -> Result<(), FieldError> {
     if matches!(disk.bootloader_type.as_str(), "limine" | "refind") && !disk.want_efi {
-        let name = if disk.bootloader_type == "limine" { "Limine" } else { "rEFInd" };
+        let name = if disk.bootloader_type == "limine" {
+            "Limine"
+        } else {
+            "rEFInd"
+        };
         return Err((
             "bootloader".to_string(),
             format!(
@@ -313,7 +351,10 @@ pub fn build_config(
         ("rootpassword", "Root password", &fields.rootpassword),
     ] {
         if !pwd.is_empty() && pwd.trim() != pwd.as_str() {
-            errors.push((key.to_string(), format!("{label} cannot start or end with spaces.")));
+            errors.push((
+                key.to_string(),
+                format!("{label} cannot start or end with spaces."),
+            ));
         }
     }
 
@@ -321,7 +362,12 @@ pub fn build_config(
         return Err(errors);
     }
 
-    let partitions = build_partitions(&disk.raw_parts, &disk.filesystem, disk.want_efi, disk.swap_strategy)?;
+    let partitions = build_partitions(
+        &disk.raw_parts,
+        &disk.filesystem,
+        disk.want_efi,
+        disk.swap_strategy,
+    )?;
 
     let root_dev = disk.raw_parts.root.as_ref().unwrap();
     let disk_dev = bootloader_disk(root_dev);
@@ -330,7 +376,11 @@ pub fn build_config(
         return Err(vec![e]);
     }
 
-    let mirror_key = if fields.mirror.is_empty() { "Local" } else { fields.mirror.as_str() };
+    let mirror_key = if fields.mirror.is_empty() {
+        "Local"
+    } else {
+        fields.mirror.as_str()
+    };
     let btrfs_snapshots = disk.btrfs_snapshots && !disk.btrfs_flat;
 
     Ok(InstallConfig {
@@ -348,8 +398,8 @@ pub fn build_config(
         mirror: mirror_key.to_string(),
         update: mirror_key != "Local" && fields.net,
         nonfree: fields.nonfree,
-        nvidia: fields.nvidia,
-        intel: fields.intel,
+        hw_drivers: fields.hw_drivers,
+        driver_set: fields.driver_set,
         partitions,
         bootloader_disk: disk_dev,
         bootloader_type: disk.bootloader_type.clone(),
@@ -378,8 +428,8 @@ mod tests {
             mirror: "Default".to_string(),
             net: true,
             nonfree: false,
-            nvidia: false,
-            intel: false,
+            hw_drivers: false,
+            driver_set: DriverSet::Generic,
         }
     }
 
@@ -443,7 +493,10 @@ mod tests {
     #[test]
     fn gpt_without_bios_boot_detects_missing_partition_with_multiline_pttype() {
         let parttypes = vec!["c12a7328-f81f-11d2-ba4b-00a0c93ec93b".to_string()];
-        assert!(gpt_without_bios_boot_from_lsblk("gpt\ngpt\ngpt\n", &parttypes));
+        assert!(gpt_without_bios_boot_from_lsblk(
+            "gpt\ngpt\ngpt\n",
+            &parttypes
+        ));
     }
 
     #[test]
@@ -460,13 +513,17 @@ mod tests {
 
     #[test]
     fn build_partitions_requires_root() {
-        let err = build_partitions(&RawPartitions::default(), "ext4", false, SwapStrategy::None).unwrap_err();
+        let err = build_partitions(&RawPartitions::default(), "ext4", false, SwapStrategy::None)
+            .unwrap_err();
         assert_eq!(err[0].0, "root");
     }
 
     #[test]
     fn build_partitions_requires_efi_when_wanted() {
-        let raw = RawPartitions { root: Some("/dev/sda2".to_string()), ..Default::default() };
+        let raw = RawPartitions {
+            root: Some("/dev/sda2".to_string()),
+            ..Default::default()
+        };
         let err = build_partitions(&raw, "ext4", true, SwapStrategy::None).unwrap_err();
         assert_eq!(err[0].0, "efi");
     }
@@ -507,7 +564,10 @@ mod tests {
     fn build_config_limine_requires_efi() {
         let fields = valid_fields();
         let disk = DiskChoices {
-            raw_parts: RawPartitions { root: Some("/dev/sda1".to_string()), ..Default::default() },
+            raw_parts: RawPartitions {
+                root: Some("/dev/sda1".to_string()),
+                ..Default::default()
+            },
             filesystem: "ext4".to_string(),
             want_efi: false,
             bootloader_type: "limine".to_string(),
@@ -557,13 +617,19 @@ mod tests {
         disk.btrfs_flat = true;
         disk.btrfs_snapshots = true;
         let cfg = build_config(&fields, &disk, "").unwrap();
-        assert!(!cfg.btrfs_snapshots, "flat layout has no subvolume boundary for @snapshots");
+        assert!(
+            !cfg.btrfs_snapshots,
+            "flat layout has no subvolume boundary for @snapshots"
+        );
     }
 
     #[test]
     fn validate_bootloader_choice_refind_requires_efi() {
         let disk = DiskChoices {
-            raw_parts: RawPartitions { root: Some("/dev/sda1".to_string()), ..Default::default() },
+            raw_parts: RawPartitions {
+                root: Some("/dev/sda1".to_string()),
+                ..Default::default()
+            },
             filesystem: "ext4".to_string(),
             want_efi: false,
             bootloader_type: "refind".to_string(),
@@ -576,7 +642,10 @@ mod tests {
     #[test]
     fn validate_bootloader_choice_grub_efi_never_needs_bios_boot_partition() {
         let disk = DiskChoices {
-            raw_parts: RawPartitions { root: Some("/dev/sda2".to_string()), ..Default::default() },
+            raw_parts: RawPartitions {
+                root: Some("/dev/sda2".to_string()),
+                ..Default::default()
+            },
             filesystem: "ext4".to_string(),
             want_efi: true,
             bootloader_type: "grub".to_string(),

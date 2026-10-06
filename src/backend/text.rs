@@ -51,7 +51,9 @@ mod tests {
 
     #[test]
     fn lossy_lines_strips_carriage_returns_and_keeps_a_last_line_without_newline() {
-        let lines: Vec<String> = lossy_lines(Cursor::new(b"a\r\nb".to_vec())).map(|l| l.unwrap()).collect();
+        let lines: Vec<String> = lossy_lines(Cursor::new(b"a\r\nb".to_vec()))
+            .map(|l| l.unwrap())
+            .collect();
         assert_eq!(lines, vec!["a".to_string(), "b".to_string()]);
     }
 }

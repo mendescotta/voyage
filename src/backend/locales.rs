@@ -219,7 +219,10 @@ mod tests {
 
     #[test]
     fn unknown_keymap_falls_back_to_code() {
-        assert_eq!(keymap_name("totally-unknown-layout"), "totally-unknown-layout");
+        assert_eq!(
+            keymap_name("totally-unknown-layout"),
+            "totally-unknown-layout"
+        );
     }
 
     #[test]
