@@ -131,16 +131,18 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
         let tab = state.borrow().tabs[index].clone();
         let state = state.clone();
         tab.connect_clicked(move |_| {
-            {
-                let mut s = state.borrow_mut();
-                if s.current_index == index || !tab_enabled(index, s.current_index, s.furthest) {
-                    drop(s);
-                    update_nav(&state);
-                    return;
-                }
-                s.current_index = index;
+            let allowed = {
+                let s = state.borrow();
+                s.current_index != index && tab_enabled(index, s.current_index, s.furthest)
+            };
+            if !allowed {
+                update_nav(&state);
+            } else if index == REVIEW {
+                go_review(&state);
+            } else {
+                state.borrow_mut().current_index = index;
+                update_nav(&state);
             }
-            update_nav(&state);
         });
     }
 
@@ -253,14 +255,7 @@ fn on_next(state: &Rc<RefCell<State>>) {
     let current = state.borrow().current_index;
 
     if current == DISKS {
-        match collect_all(state) {
-            Ok(config) => {
-                state.borrow().review.set_config(&config);
-                state.borrow_mut().current_index = REVIEW;
-                update_nav(state);
-            }
-            Err(errors) => show_errors(state, &errors),
-        }
+        go_review(state);
         return;
     }
     if current == COMPLETION {
@@ -290,6 +285,18 @@ fn on_next(state: &Rc<RefCell<State>>) {
     }
 
     state.borrow_mut().current_index += 1;
+    update_nav(state);
+}
+
+/// Validate every page and refresh the summary before showing Review, so the summary is never stale.
+fn go_review(state: &Rc<RefCell<State>>) {
+    match collect_all(state) {
+        Ok(config) => {
+            state.borrow().review.set_config(&config);
+            state.borrow_mut().current_index = REVIEW;
+        }
+        Err(errors) => show_errors(state, &errors),
+    }
     update_nav(state);
 }
 
