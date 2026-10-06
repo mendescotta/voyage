@@ -174,7 +174,44 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
         install_button.connect_clicked(move |_| start_install(&state));
     }
 
+    if let Ok(dir) = std::env::var("VOYAGE_SCREENSHOTS") {
+        screenshot_tour(&state, dir.into());
+    }
+
     window
+}
+
+/// Developer aid: with `VOYAGE_SCREENSHOTS=<dir>` the window visits each setup tab, saves a PNG
+/// of it to `<dir>/<n>-<title>.png`, then quits. Used to review the UI without a screen grabber.
+fn screenshot_tour(state: &Rc<RefCell<State>>, dir: std::path::PathBuf) {
+    let titles = [pages::welcome::TITLE, pages::mirrors::TITLE, pages::users::TITLE, pages::disks::TITLE];
+    let _ = std::fs::create_dir_all(&dir);
+    let state = state.clone();
+    let step = std::cell::Cell::new(0usize);
+    gtk::glib::timeout_add_local(std::time::Duration::from_millis(1200), move || {
+        let n = step.get();
+        if n > 0 {
+            let s = state.borrow();
+            let paintable = gtk::WidgetPaintable::new(Some(&s.window));
+            let snapshot = gtk::Snapshot::new();
+            paintable.snapshot(&snapshot, f64::from(s.window.width()), f64::from(s.window.height()));
+            if let (Some(node), Some(renderer)) = (snapshot.to_node(), s.window.native().and_then(|n| n.renderer())) {
+                let name = format!("{}-{}.png", n - 1, titles[n - 1].replace(' ', "-").to_lowercase());
+                let _ = renderer.render_texture(&node, None).save_to_png(dir.join(name));
+            }
+        }
+        if n >= titles.len() {
+            if let Some(app) = state.borrow().window.application() {
+                app.quit();
+            }
+            return gtk::glib::ControlFlow::Break;
+        }
+        state.borrow_mut().current_index = n;
+        state.borrow_mut().furthest = REVIEW;
+        update_nav(&state);
+        step.set(n + 1);
+        gtk::glib::ControlFlow::Continue
+    });
 }
 
 fn update_nav(state: &Rc<RefCell<State>>) {

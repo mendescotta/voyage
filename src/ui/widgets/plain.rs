@@ -106,7 +106,7 @@ row_common!(Group, root);
 fn base_row(title: &str, child: Option<&gtk::Widget>, vertical: bool) -> (gtk::ListBoxRow, gtk::Label, gtk::Label, gtk::Box) {
     let outer = gtk::Box::builder()
         .orientation(if vertical { gtk::Orientation::Vertical } else { gtk::Orientation::Horizontal })
-        .spacing(12)
+        .spacing(if vertical { 4 } else { 12 })
         .margin_top(8)
         .margin_bottom(8)
         .margin_start(12)

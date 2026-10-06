@@ -39,6 +39,9 @@ impl WelcomePage {
             .margin_end(24)
             .build();
 
+        let logo = gtk::Image::builder().icon_name("org.voidlinux.voyage").pixel_size(80).halign(gtk::Align::Center).build();
+        widget.append(&logo);
+
         let heading = gtk::Label::builder()
             .label("Welcome! Let's set up your regional settings")
             .css_classes(["title-1"])
