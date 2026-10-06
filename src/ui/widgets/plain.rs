@@ -77,7 +77,7 @@ pub fn about(parent: &Window) {
         .program_name("Voyage")
         .logo_icon_name("system-software-install")
         .authors(["Void Dinit ISO"])
-        .version("0.2.1 (GTK4)")
+        .version("0.3.0 (GTK4)")
         .copyright("\u{a9} 2026 Void Dinit ISO")
         .license_type(gtk::License::Gpl30)
         .build()
