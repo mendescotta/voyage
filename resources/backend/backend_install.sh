@@ -817,6 +817,16 @@ install_refind() {
 EOF
 }
 
+remove_unused_bootloaders() {
+    local pkgs="" pkg
+    for pkg in "$@"; do
+        chroot "$TARGETDIR" xbps-query "$pkg" >/dev/null 2>&1 && pkgs="$pkgs $pkg"
+    done
+    [ -n "$pkgs" ] || return 0
+    # -R also removes dependents (grub-*-efi depend on grub); keep stderr visible
+    chroot "$TARGETDIR" xbps-remove -Ry $pkgs || echo "Warning: could not remove unused bootloaders:$pkgs"
+}
+
 set_bootloader() {
     local dev="$(get_option BOOTLOADER)" bl_type="$(get_option BOOTLOADER_TYPE)"
 
@@ -824,11 +834,11 @@ set_bootloader() {
 
     case "${bl_type:-grub}" in
         limine) install_limine; chroot "$TARGETDIR" xbps-pkgdb -m manual limine
-                chroot "$TARGETDIR" xbps-remove -y grub refind 2>/dev/null || true ;;
+                remove_unused_bootloaders grub grub-x86_64-efi grub-i386-efi refind ;;
         refind) install_refind; chroot "$TARGETDIR" xbps-pkgdb -m manual refind
-                chroot "$TARGETDIR" xbps-remove -y grub limine 2>/dev/null || true ;;
+                remove_unused_bootloaders grub grub-x86_64-efi grub-i386-efi limine ;;
         *)      install_grub "$dev"; chroot "$TARGETDIR" xbps-pkgdb -m manual grub
-                chroot "$TARGETDIR" xbps-remove -y limine refind 2>/dev/null || true ;;
+                remove_unused_bootloaders limine refind ;;
     esac
 }
 
@@ -885,7 +895,7 @@ if [ "$INIT_SYSTEM" = "dynamod" ]; then
         > "$TARGETDIR/boot/initramfs-$kver.img"
     rm -rf "$initramfs_dir"
 else
-    chroot "$TARGETDIR" dracut --no-hostonly --add-drivers "ahci" --force || die "Error rebuilding initramfs"
+    chroot "$TARGETDIR" dracut --no-hostonly --add-drivers "ahci" --omit "crypt overlayfs-crypt nfs" --force || die "Error rebuilding initramfs"
 fi
 
 log_ui "USER_CONFIG"
