@@ -14,6 +14,13 @@ pub fn tabs_visible(current: usize) -> bool {
     current < INSTALLATION
 }
 
+/// Cancel policy: once the installation is running (partitioning, formatting, copying as root) nothing can
+/// interrupt it safely, so the window cannot be closed until it ends in success or failure. Before that the
+/// user can go anywhere and close freely. `--demo` touches no disk, so it may always be closed.
+pub fn close_allowed(current: usize, demo: bool) -> bool {
+    demo || current != INSTALLATION
+}
+
 /// Any setup tab can be picked at any time. Nothing is skipped by jumping around: Review and the install
 /// button validate every page again before they let anything happen.
 pub fn tab_enabled(_tab: usize, current: usize) -> bool {
@@ -40,5 +47,22 @@ mod tests {
         assert!(tabs_visible(REVIEW));
         assert!(!tab_enabled(WELCOME, INSTALLATION));
         assert!(!tab_enabled(REVIEW, COMPLETION));
+    }
+
+    #[test]
+    fn the_window_cannot_be_closed_while_installing() {
+        assert!(!close_allowed(INSTALLATION, false));
+    }
+
+    #[test]
+    fn it_can_be_closed_before_the_install_and_after_it_ends() {
+        for page in [WELCOME, MIRRORS, USERS, DISKS, REVIEW, COMPLETION] {
+            assert!(close_allowed(page, false), "page {page}");
+        }
+    }
+
+    #[test]
+    fn the_demo_never_blocks_closing() {
+        assert!(close_allowed(INSTALLATION, true));
     }
 }

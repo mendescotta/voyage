@@ -129,11 +129,11 @@ pub fn generate_conf_file(config: &InstallConfig, conf_file: &str) -> std::io::R
     Ok(())
 }
 
+/// There is deliberately no way to cancel a running installation (see `ui::nav::close_allowed`).
 pub struct InstallRunner {
     config: InstallConfig,
     demo: bool,
     conf_file: String,
-    interrupted: Arc<AtomicBool>,
 }
 
 impl InstallRunner {
@@ -142,13 +142,7 @@ impl InstallRunner {
             config,
             demo,
             conf_file: "/tmp/.void-installer.conf".to_string(),
-            interrupted: Arc::new(AtomicBool::new(false)),
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn request_interruption(&self) {
-        self.interrupted.store(true, Ordering::SeqCst);
     }
 
     pub fn start<F>(self, on_event: F) -> thread::JoinHandle<()>
@@ -170,9 +164,6 @@ impl InstallRunner {
             "[DEMO] Demo mode active: no real changes will be made.".to_string(),
         ));
         for (token, value, delay_ms) in DEMO_STEPS {
-            if self.interrupted.load(Ordering::SeqCst) {
-                return;
-            }
             on_event(InstallEvent::Status((*token).to_string()));
             on_event(InstallEvent::Log(format!(
                 "[DEMO] Simulating step: {token}"

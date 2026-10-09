@@ -181,6 +181,32 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
     }));
 
     {
+        // no cancelling once the install runs: it partitions, formats and copies as root
+        let weak = Rc::downgrade(&state);
+        let window = state.borrow().window.clone();
+        window.connect_close_request(move |w| {
+            let Some(state) = weak.upgrade() else {
+                return gtk::glib::Propagation::Proceed;
+            };
+            let (page, demo) = {
+                let s = state.borrow();
+                (s.current_index, s.demo)
+            };
+            if crate::ui::nav::close_allowed(page, demo) {
+                gtk::glib::Propagation::Proceed
+            } else {
+                widgets::alert(
+                    w,
+                    "Installation in progress",
+                    "The installation cannot be stopped safely while it partitions, formats and copies. \
+                     Please wait until it finishes.",
+                );
+                gtk::glib::Propagation::Stop
+            }
+        });
+    }
+
+    {
         let weak = Rc::downgrade(&state);
         state.borrow().review.set_edit_handler(move |page| {
             if let Some(state) = weak.upgrade() {
