@@ -19,7 +19,10 @@ die() {
     exit 1
 }
 
-. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/live_guard.sh"
+BACKEND_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+. "$BACKEND_DIR/live_guard.sh"
+DISTRO_CONF_DEFAULT="$BACKEND_DIR/distro.conf"
+. "$BACKEND_DIR/distro_config.sh"
 
 # Every device the configuration would write to (partitions and the bootloader target) must be off the
 # disk this live system booted from. Runs before anything is formatted or mounted.
@@ -522,17 +525,55 @@ set_rootpassword() {
 }
 
 set_default_shell() {
-    if ! chroot "$TARGETDIR" xbps-query fish-shell >/dev/null 2>&1; then
-        chroot "$TARGETDIR" xbps-install -Sy fish-shell >/dev/null 2>&1 || {
-            log_ui "Fish is not available (offline install); keeping the default shell."
+    local shell pkg USERLOGIN
+    shell="$(distro_value default-shell)"
+    [ -n "$shell" ] && [ "$shell" != "none" ] || return 0
+    pkg="$(distro_values default-shell | sed -n 2p)"
+    if [ -n "$pkg" ] && ! chroot "$TARGETDIR" xbps-query "$pkg" >/dev/null 2>&1; then
+        chroot "$TARGETDIR" xbps-install -Sy "$pkg" >/dev/null 2>&1 || {
+            log_ui "$pkg is not available (offline install); keeping the default shell."
             return 0
         }
     fi
-    grep -q '^/usr/bin/fish$' "$TARGETDIR/etc/shells" 2>/dev/null || \
-        echo /usr/bin/fish >> "$TARGETDIR/etc/shells"
-    chroot "$TARGETDIR" usermod -s /usr/bin/fish root
-    local USERLOGIN="$(get_option USERLOGIN)"
-    [ -n "$USERLOGIN" ] && chroot "$TARGETDIR" usermod -s /usr/bin/fish "$USERLOGIN"
+    grep -qxF "$shell" "$TARGETDIR/etc/shells" 2>/dev/null || \
+        echo "$shell" >> "$TARGETDIR/etc/shells"
+    chroot "$TARGETDIR" usermod -s "$shell" root
+    USERLOGIN="$(get_option USERLOGIN)"
+    [ -n "$USERLOGIN" ] && chroot "$TARGETDIR" usermod -s "$shell" "$USERLOGIN"
+}
+
+disable_service() {
+    case "$INIT_SYSTEM" in
+        dinit) rm -f "$TARGETDIR/etc/dinit.d/boot.d/$1" ;;
+        *) rm -f "$TARGETDIR/etc/runit/runsvdir/default/$1" ;;
+    esac
+}
+
+# the services distro.conf switches on or off in the new system
+apply_distro_services() {
+    local svc
+    for svc in $(distro_values enable); do
+        if [ ! -e "$TARGETDIR/etc/dinit.d/$svc" ] && [ ! -e "$TARGETDIR/etc/sv/$svc" ]; then
+            echo "Warning: the new system has no service $svc; not enabling it" >&2
+            continue
+        fi
+        enable_service "$svc"
+    done
+    for svc in $(distro_values disable); do
+        disable_service "$svc"
+    done
+}
+
+# the extra packages distro.conf asks for (needs the network; offline installs skip them)
+install_distro_packages() {
+    local pkgs
+    pkgs="$(distro_values install | tr '\n' ' ')"
+    [ -n "${pkgs// /}" ] || return 0
+    if [ "$(get_option UPDATE)" != "1" ]; then
+        echo "Offline installer: not installing the extra packages: $pkgs"
+        return 0
+    fi
+    chroot "$TARGETDIR" xbps-install -Sy $pkgs || echo "Warning: could not install: $pkgs" >&2
 }
 
 set_useraccount() {
@@ -617,11 +658,10 @@ EOF
     esac
 }
 
-INSTALLER_ONLY_PKGS="voyage xmirror dialog xtools-minimal"
 
 remove_installer_packages() {
     local pkg installed=""
-    for pkg in $INSTALLER_ONLY_PKGS; do
+    for pkg in $(distro_values remove); do
         chroot "$TARGETDIR" xbps-query "$pkg" >/dev/null 2>&1 && installed="$installed $pkg"
     done
     [ -n "$installed" ] || return 0
@@ -884,12 +924,15 @@ log_ui "INIT"
 echo "Log started at $LOG"
 
 check_not_live_medium
+distro_conf_check || die "distro.conf is invalid (see the messages above)"
 
 log_ui "CREATE_FS"
 create_filesystems
 if [ "$(get_option SWAPTYPE)" = "swapfile" ]; then
     setup_swapfile
 fi
+
+run_hooks pre-copy || die "a pre-copy hook failed"
 
 log_ui "COPY"
 copy_rootfs
@@ -907,7 +950,10 @@ set_hostname
 
 set_mirror
 install_extra_software
+install_distro_packages
 install_hardware_drivers
+apply_distro_services
+run_hooks post-copy || die "a post-copy hook failed"
 
 echo "Rebuilding initramfs for the target system..."
 chroot "$TARGETDIR" dracut $(initramfs_dracut_args) --omit "crypt overlayfs-crypt nfs" --force || die "Error rebuilding initramfs"
@@ -923,6 +969,7 @@ set_bootloader
 
 echo "Removing the installer and orphaned packages/cache..."
 remove_installer_packages
+run_hooks post-install || die "a post-install hook failed"
 
 log_ui "FINISH"
 sync

@@ -5,7 +5,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$HERE/resources/backend/backend_install.sh"
 
-eval "$(sed -n '/^INSTALLER_ONLY_PKGS=/p;/^remove_installer_packages()/,/^}/p' "$SCRIPT")"
+eval "$(sed -n '/^remove_installer_packages()/,/^}/p' "$SCRIPT")"
+DISTRO_CONF_DEFAULT="$HERE/resources/backend/distro.conf"; DISTRO_CONF_OVERRIDE=/nonexistent
+. "$HERE/resources/backend/distro_config.sh"
 type remove_installer_packages >/dev/null 2>&1 || { echo "FAIL remove_installer_packages is not defined in the backend"; exit 1; }
 
 TARGETDIR=/target

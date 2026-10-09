@@ -10,6 +10,12 @@ rootfs copy, bootloader, users) from a tabbed UI: Welcome, Mirror and Software, 
 - Real progress while the system is copied (a percentage from `tar` checkpoints), not a timer.
 - Every tab is available at any time. Review has an Edit button per choice; after editing, Next becomes
   "Back to review". Review and Install validate all pages again.
+- Distro policy is data, not code: `resources/backend/distro.conf` sets the login shell, extra packages,
+  packages to remove and services to enable or disable. An ISO replaces it by shipping
+  `/etc/voyage/distro.conf`. Executable hooks in `/etc/voyage/hooks.d/{pre-copy,post-copy,post-install}/`
+  run in name order with `TARGETDIR`, `INIT_SYSTEM` and `CONF_FILE` set; they must be owned by root and not
+  writable by others, and a failing hook stops the install unless its name ends in `.optional`.
+- No cancelling mid-install: once partitioning starts the window cannot be closed until the install ends.
 - Bootloaders: GRUB, Limine, rEFInd (with the RONBM theme).
 - Drivers: [voidhw](https://github.com/mendescotta/voidhw) detects the hardware and installs the right GPU driver, firmware, microcode and VM guest tools. The initramfs can be generic (any hardware) or targeted (this machine only).
 - Plain GTK4 by default; `--features adwaita` builds with libadwaita.
