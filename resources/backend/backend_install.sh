@@ -600,6 +600,30 @@ install_distro_packages() {
     chroot "$TARGETDIR" xbps-install -Sy $pkgs || echo "Warning: could not install: $pkgs" >&2
 }
 
+# Void's guest dkms.conf also builds vboxvideo, which does not compile against Linux 6.18 (drm_fb_helper_alloc_info
+# is gone), so the whole dkms build fails and no module is installed. vboxguest and vboxsf are what guest control,
+# shared folders and the clipboard need. Only runs when a kernel has no installed module.
+# Drop when: virtualbox-ose-guest-dkms builds on the current kernel without this (fixed or vboxvideo dropped upstream).
+repair_vbox_dkms() {
+    local conf kdir kver n broken=""
+    for kdir in "$TARGETDIR"/usr/lib/modules/*/; do
+        [ -d "$kdir" ] || continue
+        kver=$(basename "$kdir")
+        chroot "$TARGETDIR" dkms status -m virtualbox-ose-guest -k "$kver" 2>/dev/null | grep -q ': installed' ||
+            broken="$broken $kver"
+    done
+    [ -n "$broken" ] || return 0
+    for conf in "$TARGETDIR"/usr/src/virtualbox-ose-guest-*/dkms.conf; do
+        [ -f "$conf" ] || continue
+        n=$(sed -n 's/^BUILT_MODULE_NAME\[\([0-9]*\)\]="vboxvideo".*/\1/p' "$conf")
+        [ -n "$n" ] && sed -i "/^[A-Z_]*\[$n\]=/d" "$conf"
+    done
+    for kver in $broken; do
+        chroot "$TARGETDIR" dkms autoinstall -k "$kver" >/dev/null 2>&1 ||
+            log_ui "The VirtualBox guest modules could not be built for kernel $kver."
+    done
+}
+
 # "Install the VirtualBox guest additions": the packages and services come from distro.conf. voidhw also
 # installs them on a detected VirtualBox guest when hardware drivers are on; doing both is harmless.
 install_vbox_guest() {
@@ -618,6 +642,7 @@ install_vbox_guest() {
             return 0
         }
     fi
+    repair_vbox_dkms
     for svc in $(distro_values vbox-guest-enable); do
         enable_service_checked "$svc"
     done

@@ -5,8 +5,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$HERE/resources/backend/backend_install.sh"
 
-eval "$(sed -n '/^enable_service()/,/^}/p;/^disable_service()/,/^}/p;/^enable_service_checked()/,/^}/p;/^apply_distro_services()/,/^}/p;/^install_distro_packages()/,/^}/p;/^apply_login_shell()/,/^}/p;/^set_login_shells()/,/^}/p;/^install_vbox_guest()/,/^}/p' "$SCRIPT")"
-for f in enable_service disable_service enable_service_checked apply_distro_services install_distro_packages apply_login_shell set_login_shells install_vbox_guest; do
+eval "$(sed -n '/^enable_service()/,/^}/p;/^disable_service()/,/^}/p;/^enable_service_checked()/,/^}/p;/^apply_distro_services()/,/^}/p;/^install_distro_packages()/,/^}/p;/^apply_login_shell()/,/^}/p;/^set_login_shells()/,/^}/p;/^install_vbox_guest()/,/^}/p;/^repair_vbox_dkms()/,/^}/p' "$SCRIPT")"
+for f in enable_service disable_service enable_service_checked apply_distro_services install_distro_packages apply_login_shell set_login_shells install_vbox_guest repair_vbox_dkms; do
 	type "$f" >/dev/null 2>&1 || { echo "FAIL $f is not defined in the backend"; exit 1; }
 done
 
@@ -28,6 +28,7 @@ chroot() {
 		xbps-query) case "$INSTALLED" in *" $2 "*) return 0 ;; *) return 1 ;; esac ;;
 		xbps-install) CALLS="$CALLS|$*"; [ "${OFFLINE:-}" = 1 ] && return 1; return 0 ;;
 		usermod) CALLS="$CALLS|$*" ;;
+		dkms) case "$2" in status) printf '%s\n' "${DKMS_STATUS:-}" ;; *) CALLS="$CALLS|$*"; [ "${DKMS_FAIL:-}" = 1 ] && return 1 ;; esac ;;
 	esac
 }
 
@@ -83,6 +84,7 @@ chroot() {
 		xbps-query) case "$INSTALLED" in *" $2 "*) return 0 ;; *) return 1 ;; esac ;;
 		xbps-install) CALLS="$CALLS|$*"; [ "${OFFLINE:-}" = 1 ] && return 1; return 0 ;;
 		usermod) CALLS="$CALLS|$*" ;;
+		dkms) case "$2" in status) printf '%s\n' "${DKMS_STATUS:-}" ;; *) CALLS="$CALLS|$*"; [ "${DKMS_FAIL:-}" = 1 ] && return 1 ;; esac ;;
 	esac
 }
 reset; DISTRO_CONF_DEFAULT="$T/distro.conf"
@@ -134,6 +136,34 @@ rm -f "$TARGETDIR/etc/dinit.d/boot.d/vboxservice"
 reset; OPTS_VBOX=1; OFFLINE=1; install_vbox_guest
 check "a failed install is reported and does not stop the installer" "$(printf '%s' "$LOGS" | grep -c 'Could not install')" "1"
 check "and nothing is enabled" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
+
+# ---- dkms repair: vboxvideo does not build on 6.18, the other two modules must still be installed
+mkdir -p "$TARGETDIR/usr/lib/modules/6.18.55_1" "$TARGETDIR/usr/src/virtualbox-ose-guest-7.2.20"
+CONF="$TARGETDIR/usr/src/virtualbox-ose-guest-7.2.20/dkms.conf"
+fresh_conf() { cat > "$CONF" <<'EOC'
+PACKAGE_NAME="virtualbox-ose-guest"
+BUILT_MODULE_NAME[0]="vboxguest"
+DEST_MODULE_LOCATION[0]="/updates"
+BUILT_MODULE_NAME[1]="vboxsf"
+DEST_MODULE_LOCATION[1]="/updates"
+BUILT_MODULE_NAME[2]="vboxvideo"
+BUILT_MODULE_LOCATION[2]="vboxvideo"
+DEST_MODULE_LOCATION[2]="/updates"
+AUTOINSTALL="yes"
+EOC
+}
+fresh_conf; reset; DKMS_STATUS="virtualbox-ose-guest/7.2.20, 6.18.55_1, x86_64: installed"; repair_vbox_dkms
+check "modules already installed: nothing is touched" "$CALLS|$(grep -c vboxvideo "$CONF")" "|2"
+
+fresh_conf; reset; DKMS_STATUS=""; repair_vbox_dkms
+check "no module installed: vboxvideo is dropped from dkms.conf" "$(grep -c vboxvideo "$CONF")" "0"
+check "and the other two modules stay" "$(grep -c 'vboxguest\|vboxsf' "$CONF")" "2"
+check "and the build is retried for that kernel" "$CALLS" "|dkms autoinstall -k 6.18.55_1"
+check "and the autoinstall line survives" "$(grep -c AUTOINSTALL "$CONF")" "1"
+
+fresh_conf; reset; DKMS_STATUS=""; DKMS_FAIL=1; repair_vbox_dkms; DKMS_FAIL=0
+check "a build that still fails is reported" "$(printf '%s' "$LOGS" | grep -c 'could not be built for kernel 6.18.55_1')" "1"
+rm -rf "$TARGETDIR/usr/lib/modules" "$TARGETDIR/usr/src"
 
 # ---- contract: what the GUI writes into the conf file is what the backend reads
 WRITER="$HERE/src/backend/install_runner.rs"
