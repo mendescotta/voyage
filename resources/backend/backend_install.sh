@@ -29,9 +29,7 @@ if [ -e /sys/firmware/efi/systab ]; then
     fi
 fi
 
-if [ -x /sbin/dynamod-init ]; then
-    INIT_SYSTEM="dynamod"
-elif [ -x /sbin/dinit ] || [ -x /usr/bin/dinit ]; then
+if [ -x /sbin/dinit ] || [ -x /usr/bin/dinit ]; then
     INIT_SYSTEM="dinit"
 else
     INIT_SYSTEM="runit"
@@ -45,10 +43,6 @@ enable_service() {
     case "$INIT_SYSTEM" in
         dinit)
             ln -sf "/etc/dinit.d/$1" "$TARGETDIR/etc/dinit.d/boot.d/$1"
-            ;;
-        dynamod)
-            [ -f "$TARGETDIR/etc/dynamod/services/$1.toml" ] || \
-                echo "WARNING: no /etc/dynamod/services/$1.toml found to enable" >&2
             ;;
         *)
             ln -sf "/etc/sv/$1" "$TARGETDIR/etc/runit/runsvdir/default/$1"
@@ -78,12 +72,6 @@ mount_with_fallback() {
         return 0
     fi
     die "Error mounting $dev on $target (tried $fstype and auto-detection)"
-}
-
-dynamod_cmdline_extra() {
-    if [ "$INIT_SYSTEM" = "dynamod" ]; then
-        printf ' rdinit=/sbin/dynamod-init init=/sbin/dynamod-init'
-    fi
 }
 
 create_filesystems() {
@@ -715,17 +703,6 @@ install_grub() {
         grub_args="--target=$EFI_TARGET --efi-directory=/boot/efi --bootloader-id=Void --recheck"
     fi
 
-    local extra_cmdline
-    extra_cmdline="$(dynamod_cmdline_extra)"
-    if [ -n "$extra_cmdline" ]; then
-        if grep -q '^GRUB_CMDLINE_LINUX_DEFAULT=' "$TARGETDIR/etc/default/grub"; then
-            sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\\(.*\\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\\1${extra_cmdline}\"|" \
-                "$TARGETDIR/etc/default/grub"
-        else
-            printf 'GRUB_CMDLINE_LINUX_DEFAULT="%s"\n' "${extra_cmdline# }" >> "$TARGETDIR/etc/default/grub"
-        fi
-    fi
-
     chroot "$TARGETDIR" grub-install $grub_args "$dev" || die "Error installing GRUB on $dev"
     chroot "$TARGETDIR" grub-mkconfig -o /boot/grub/grub.cfg || die "Error generating grub.cfg"
 }
@@ -755,7 +732,7 @@ TIMEOUT=5
     PROTOCOL=linux
     KERNEL_PATH=boot:///vmlinuz-$kver
     MODULE_PATH=boot:///initramfs-$kver.img
-    CMDLINE=root=UUID=$root_uuid rw$(dynamod_cmdline_extra)
+    CMDLINE=root=UUID=$root_uuid rw
 EOF
 }
 
@@ -814,11 +791,9 @@ install_refind() {
         echo "WARNING: RONBM theme not found at $theme_src, rEFInd will use its default theme"
     fi
 
-    local extra_cmdline
-    extra_cmdline="$(dynamod_cmdline_extra)"
     cat > "$TARGETDIR/boot/refind_linux.conf" <<EOF
-"Boot with standard options"  "root=UUID=$root_uuid rw${extra_cmdline} initrd=/boot/initramfs-%v.img"
-"Boot to single-user mode"  "root=UUID=$root_uuid rw single${extra_cmdline} initrd=/boot/initramfs-%v.img"
+"Boot with standard options"  "root=UUID=$root_uuid rw initrd=/boot/initramfs-%v.img"
+"Boot to single-user mode"  "root=UUID=$root_uuid rw single initrd=/boot/initramfs-%v.img"
 EOF
 }
 
@@ -853,7 +828,7 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 if [ ! -f "$CONF_FILE" ]; then
-    die "$CONF_FILE was not found. The Python frontend must generate it first."
+    die "$CONF_FILE was not found. The voyage frontend must generate it first."
 fi
 
 log_ui "INIT"
@@ -884,25 +859,7 @@ install_extra_software
 install_hardware_drivers
 
 echo "Rebuilding initramfs for the target system..."
-if [ "$INIT_SYSTEM" = "dynamod" ]; then
-    kver="$(kernel_version)"
-    [ -n "$kver" ] || die "No kernel image found in $TARGETDIR/boot to rebuild the initramfs for"
-    initramfs_dir="$(mktemp -d)"
-    mkdir -p "$initramfs_dir"/{sbin,bin,dev,proc,sys,newroot}
-    cp "$TARGETDIR/sbin/dynamod-init" "$initramfs_dir/sbin/dynamod-init"
-    if [ -f "$TARGETDIR/usr/bin/busybox" ]; then
-        cp "$TARGETDIR/usr/bin/busybox" "$initramfs_dir/bin/busybox"
-        for cmd in sh mdev mount umount; do
-            ln -sf busybox "$initramfs_dir/bin/$cmd"
-        done
-        ln -sf ../bin/mdev "$initramfs_dir/sbin/mdev"
-    fi
-    ( cd "$initramfs_dir" && find . -print0 | cpio --null -o --format=newc 2>/dev/null | gzip -9 ) \
-        > "$TARGETDIR/boot/initramfs-$kver.img"
-    rm -rf "$initramfs_dir"
-else
-    chroot "$TARGETDIR" dracut $(initramfs_dracut_args) --omit "crypt overlayfs-crypt nfs" --force || die "Error rebuilding initramfs"
-fi
+chroot "$TARGETDIR" dracut $(initramfs_dracut_args) --omit "crypt overlayfs-crypt nfs" --force || die "Error rebuilding initramfs"
 
 log_ui "USER_CONFIG"
 set_rootpassword

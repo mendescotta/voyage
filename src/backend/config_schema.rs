@@ -455,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn hostname_rules_match_python_regex() {
+    fn hostname_rules_match_installer_regex() {
         assert!(hostname_valid("void"));
         assert!(hostname_valid("a"));
         assert!(hostname_valid("void-box-1"));
@@ -467,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn username_rules_match_python_regex() {
+    fn username_rules_match_installer_regex() {
         assert!(username_valid("user"));
         assert!(username_valid("_gui"));
         assert!(username_valid("user-2"));
