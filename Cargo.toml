@@ -1,6 +1,6 @@
 [package]
 name = "voyage"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "A GTK4 installer for Void Linux, built directly on the official void-installer shell backend"
 license = "GPL-3.0-or-later"

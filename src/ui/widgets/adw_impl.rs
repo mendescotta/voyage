@@ -70,7 +70,7 @@ pub fn about(parent: &Window) {
         .application_name("Voyage")
         .application_icon("system-software-install")
         .developer_name("Void Dinit ISO")
-        .version("0.3.0 (GTK4)")
+        .version(concat!(env!("CARGO_PKG_VERSION"), " (GTK4)"))
         .copyright("\u{a9} 2026 Void Dinit ISO")
         .license_type(gtk::License::Gpl30)
         .build();
