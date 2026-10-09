@@ -12,6 +12,7 @@ check() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got '$2',
 ok()   { echo "ok   $1"; }
 bad()  { echo "FAIL $1"; fails=$((fails + 1)); }
 
+HOOKS_TRUSTED_UID="$(id -u)"
 DISTRO_CONF_DEFAULT="$T/default.conf"
 DISTRO_CONF_OVERRIDE="$T/override.conf"
 . "$LIB"
@@ -49,10 +50,21 @@ try "package name starting with a dash" 'install -Rf'
 try "service name with a slash"         'enable ../etc'
 try "shell that is not an absolute path" 'default-shell fish'
 try "shell with a space-less odd char"  'default-shell /usr/bin/fi$h'
+try "shell path with .. segments"       'default-shell /usr/bin/../../tmp/x'
+try "shell path with a double slash"    'default-shell /usr//bin/fish'
 try "key without values"                'install'
 try "too many words for the shell"      'default-shell /usr/bin/fish fish-shell extra'
 printf 'default-shell /usr/bin/fish\nbogus x\n' > "$DISTRO_CONF_DEFAULT"; distro_conf_check 2>"$T/err"
 grep -q ':2:' "$T/err" && ok "the message names the line" || bad "message lacks the line number: $(cat "$T/err")"
+
+# ---- the override file is held to the same trust rules as hooks
+printf 'default-shell none\n' > "$DISTRO_CONF_OVERRIDE"
+distro_conf_check 2>/dev/null && ok "an override owned by the trusted user passes" || bad "trusted override rejected"
+chmod 666 "$DISTRO_CONF_OVERRIDE"
+distro_conf_check 2>"$T/err" && bad "a world-writable override was accepted" || ok "a world-writable override is refused"
+grep -q "override" "$T/err" && ok "and the message says why" || bad "no explanation: $(cat "$T/err")"
+rm -f "$DISTRO_CONF_OVERRIDE"
+printf 'install nano\n' > "$DISTRO_CONF_DEFAULT"
 
 # ---- the shipped default keeps today's behaviour
 DISTRO_CONF_DEFAULT="$HERE/resources/backend/distro.conf"
@@ -62,7 +74,7 @@ check "installer-only packages are unchanged" "$(distro_values remove | tr '\n' 
 
 # ---- hooks
 H="$T/hooks"; OUT="$T/out"; export OUT; mkdir -p "$H/post-copy" "$T/etc-hooks/post-copy"
-HOOKS_DIRS="$H $T/etc-hooks"; HOOKS_TRUSTED_UID="$(id -u)"
+HOOKS_DIRS="$H:$T/etc-hooks"; HOOKS_TRUSTED_UID="$(id -u)"
 TARGETDIR=/mnt/target; INIT_SYSTEM=dinit; CONF_FILE=/tmp/conf
 mk() { printf '#!/bin/sh\n%s\n' "$2" > "$1"; chmod "${3:-755}" "$1"; }
 mk "$H/post-copy/20-second" 'echo "second $VOYAGE_STAGE $TARGETDIR $INIT_SYSTEM" >> "$OUT"'
@@ -77,6 +89,23 @@ mk "$T/etc-hooks/post-copy/10-first" 'echo override >> "$OUT"'
 : > "$OUT"; run_hooks post-copy >/dev/null 2>&1
 check "a hook in /etc replaces the shipped one of the same name" "$(tr '\n' '|' < "$OUT")" "override|second post-copy /mnt/target dinit|"
 rm -f "$T/etc-hooks/post-copy/10-first"
+
+# an admin can switch a shipped hook off from /etc
+mk "$T/etc-hooks/post-copy/10-first.disabled" 'exit 9' 644
+rm -f "$T/etc-hooks/post-copy/10-first"
+: > "$OUT"; run_hooks post-copy >/dev/null 2>&1
+check "a .disabled file in /etc switches off the shipped hook of that name" "$(tr '\n' '|' < "$OUT")" "second post-copy /mnt/target dinit|"
+rm -f "$T/etc-hooks/post-copy/10-first.disabled"
+mk "$T/etc-hooks/post-copy/20-second" 'echo SHOULD-NOT-RUN >> "$OUT"' 644
+: > "$OUT"; run_hooks post-copy >/dev/null 2>&1
+check "so does a non-executable file of the same name" "$(tr '\n' '|' < "$OUT")" "first|"
+rm -f "$T/etc-hooks/post-copy/20-second"
+
+# a hooks directory whose path contains a space still works
+mkdir -p "$T/with space/post-copy"; mk "$T/with space/post-copy/10-spaced" 'echo spaced >> "$OUT"'
+OLD_DIRS="$HOOKS_DIRS"; HOOKS_DIRS="$T/with space"; : > "$OUT"; run_hooks post-copy >/dev/null 2>&1
+check "a directory with a space in its path is not skipped" "$(tr '\n' '|' < "$OUT")" "spaced|"
+HOOKS_DIRS="$OLD_DIRS"
 
 run_hooks no-such-stage >/dev/null 2>&1 && ok "a stage without a directory is fine" || bad "missing stage dir failed"
 run_hooks "../etc" >/dev/null 2>&1 && bad "a stage with a path was accepted" || ok "a stage name cannot be a path"

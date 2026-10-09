@@ -4,12 +4,24 @@
 
 # top-level disks (one per line) that carry the live medium's mount
 live_medium_disks() {
-    local mp src
+    local mp src back disks
     for mp in /run/initramfs/live /run/live/medium /run/initramfs/medium; do
         src="$(findmnt -n -o SOURCE "$mp" 2>/dev/null)" || continue
         [ -n "$src" ] || continue
+        # an ISO mounted through a loop device: follow it to the file, then to the device holding the file
+        case "$src" in
+            /dev/loop*)
+                back="$(losetup -nO BACK-FILE "$src" 2>/dev/null)"
+                [ -n "$back" ] && src="$(findmnt -T "$back" -no SOURCE 2>/dev/null)"
+                ;;
+        esac
         # -s walks from the device up through its parents (partition, crypt/dm layers) to the disk
-        lsblk -nrso NAME,TYPE "$src" 2>/dev/null | awk '$2 == "disk" { print "/dev/" $1 }'
+        disks="$(lsblk -nrso NAME,TYPE "$src" 2>/dev/null | awk '$2 == "disk" { print "/dev/" $1 }')"
+        if [ -z "$disks" ]; then
+            # the guard cannot protect this boot: say so instead of staying silently open
+            echo "Warning: $mp is mounted but its disk cannot be determined; the live-medium guard cannot protect this boot." >&2
+        fi
+        [ -z "$disks" ] || printf '%s\n' "$disks"
     done | sort -u
 }
 

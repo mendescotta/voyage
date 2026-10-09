@@ -38,6 +38,10 @@ distro_conf_check() {
     local f
     f="$(distro_conf_file)"
     [ -f "$f" ] || return 0
+    if [ "$f" = "$DISTRO_CONF_OVERRIDE" ] && ! _hook_trusted "$f"; then
+        echo "$f: the override must be owned by uid $HOOKS_TRUSTED_UID and not writable by others" >&2
+        return 1
+    fi
     awk -v file="$f" '
         function bad(msg) { printf "%s:%d: %s\n", file, NR, msg > "/dev/stderr"; rc = 1 }
         { sub(/#.*/, "") }
@@ -46,7 +50,7 @@ distro_conf_check() {
             key = $1
             if (key == "default-shell") {
                 if (NF < 2 || NF > 3) bad("default-shell takes a path (or none) and an optional package")
-                else if ($2 != "none" && $2 !~ /^\/[A-Za-z0-9._+\/-]+$/) bad("default-shell needs an absolute path or none: " $2)
+                else if ($2 != "none" && ($2 !~ /^\/[A-Za-z0-9._+\/-]+$/ || $2 ~ /\.\.|\/\//)) bad("default-shell needs a plain absolute path (no .. or //) or none: " $2)
                 else if (NF == 3 && $3 !~ /^[A-Za-z0-9][A-Za-z0-9._+-]*$/) bad("invalid package name: " $3)
             } else if (key == "install" || key == "remove" || key == "enable" || key == "disable") {
                 if (NF < 2) bad(key " needs at least one name")
@@ -72,14 +76,15 @@ _hook_trusted() {
 # Everything is checked before the first hook runs. A failing hook fails the stage unless its name ends
 # in .optional; *.disabled is skipped. Hooks get VOYAGE_STAGE, TARGETDIR, INIT_SYSTEM and CONF_FILE.
 run_hooks() {
-    local stage="$1" dirs dir path name
+    local stage="$1" dir path name
+    local -a dirs=() names=()
     local -A chosen=()
-    local -a names=()
     case "$stage" in
         "" | *[!A-Za-z0-9_-]*) echo "hooks: invalid stage name: $stage" >&2; return 1 ;;
     esac
-    dirs="${HOOKS_DIRS:-$(dirname "${BASH_SOURCE[0]}")/hooks.d /etc/voyage/hooks.d}"
-    for dir in $dirs; do
+    # HOOKS_DIRS is a colon-separated list; the default is the shipped directory, then /etc
+    IFS=: read -r -a dirs <<<"${HOOKS_DIRS:-$(dirname "${BASH_SOURCE[0]}")/hooks.d:/etc/voyage/hooks.d}"
+    for dir in "${dirs[@]}"; do
         [ -d "$dir/$stage" ] || continue
         if ! _hook_trusted "$dir/$stage"; then
             echo "hooks: refusing $dir/$stage: not owned by uid $HOOKS_TRUSTED_UID or writable by others" >&2
@@ -88,11 +93,13 @@ run_hooks() {
         for path in "$dir/$stage"/*; do
             [ -e "$path" ] || continue
             name="${path##*/}"
-            case "$name" in
-                *.disabled) continue ;;
-            esac
             [[ $name =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] || { echo "hooks: skipping oddly named $path" >&2; continue; }
-            [ -x "$path" ] || continue
+            case "$name" in
+                # NAME.disabled switches NAME off, also when NAME comes from an earlier (shipped) directory
+                *.disabled) unset "chosen[${name%.disabled}]"; continue ;;
+            esac
+            # a same-named file that is not executable shadows (switches off) the earlier one
+            if [ ! -x "$path" ]; then unset "chosen[$name]"; continue; fi
             chosen[$name]="$path"
         done
     done

@@ -17,8 +17,9 @@ check() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got '$2',
 DISTRO_CONF_DEFAULT="$T/distro.conf"; DISTRO_CONF_OVERRIDE=/nonexistent
 . "$HERE/resources/backend/distro_config.sh"
 TARGETDIR="$T/target"; CALLS=""; INSTALLED=" "; OPTS_UPDATE=1; OPTS_USERLOGIN=gui
-mkdir -p "$TARGETDIR/etc"
-log_ui() { :; }
+mkdir -p "$TARGETDIR/etc" "$TARGETDIR/usr/bin" "$TARGETDIR/bin"
+for s in usr/bin/fish bin/bash; do printf '#!/bin/sh\n' > "$TARGETDIR/$s"; chmod +x "$TARGETDIR/$s"; done
+log_ui() { LOGS="$LOGS|$*"; }; LOGS=""
 get_option() { case "$1" in UPDATE) echo "$OPTS_UPDATE" ;; USERLOGIN) echo "$OPTS_USERLOGIN" ;; esac; }
 chroot() {
 	shift
@@ -52,6 +53,13 @@ check "a shell without a package is only set" "$CALLS" "|usermod -s /bin/bash ro
 printf 'default-shell none\n' > "$T/distro.conf"; CALLS=""
 set_default_shell
 check "none leaves the live image's shell" "$CALLS" ""
+
+# ---- a shell that is not in the new system must never become a login shell
+printf 'default-shell /usr/bin/zsh zsh\n' > "$T/distro.conf"; CALLS=""; LOGS=""; INSTALLED=" zsh "
+set_default_shell
+check "a configured shell that is missing is not set" "$CALLS" ""
+check "and the install says so" "$(printf '%s' "$LOGS" | grep -c 'zsh')" "1"
+check "nor added to /etc/shells" "$(grep -c zsh "$TARGETDIR/etc/shells")" "0"
 
 # ---- extra packages
 printf 'install nano htop\n' > "$T/distro.conf"; CALLS=""

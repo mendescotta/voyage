@@ -6,7 +6,10 @@ GUARD="$HERE/resources/backend/live_guard.sh"
 [ -f "$GUARD" ] || { echo "FAIL $GUARD does not exist"; exit 1; }
 
 LIVE_SRC=""
-findmnt() { # findmnt -n -o SOURCE <mountpoint>
+LOOP_BACK=""
+losetup() { [ -n "$LOOP_BACK" ] && echo "$LOOP_BACK"; }
+findmnt() { # findmnt -n -o SOURCE <mountpoint>   |   findmnt -T <file> -no SOURCE
+	case " $* " in *" -T "*) [ "$LOOP_BACK" = "/isos/live.iso" ] && echo /dev/sdb2; return 0 ;; esac
 	local mp="${*: -1}"
 	[ "$mp" = "/run/initramfs/live" ] && [ -n "$LIVE_SRC" ] && { echo "$LIVE_SRC"; return 0; }
 	return 1
@@ -20,6 +23,8 @@ lsblk() { # lsblk -nrso NAME,TYPE <dev>: the device and its parents, one per lin
 		/dev/nvme0n1p1) printf 'nvme0n1p1 part\nnvme0n1 disk\n' ;;
 		/dev/mapper/live) printf 'live crypt\nsdb1 part\nsdb disk\n' ;;
 		/dev/sdb)       printf 'sdb disk\n' ;;
+		/dev/sdb2)      printf 'sdb2 part\nsdb disk\n' ;;
+		/dev/loop0)     printf 'loop0 loop\n' ;;
 		*) return 1 ;;
 	esac
 }
@@ -39,6 +44,16 @@ allows  "a partition of a different disk" /dev/nvme0n1p1
 LIVE_SRC=/dev/mapper/live
 refuses "a medium behind a mapper device: its disk" /dev/sdb
 allows  "a medium behind a mapper device: others"   /dev/sda
+
+LIVE_SRC=/dev/loop0; LOOP_BACK=/isos/live.iso
+refuses "an ISO loop-mounted from a file: the disk that holds the file" /dev/sdb
+allows  "an ISO loop-mounted from a file: other disks"               /dev/sda
+LOOP_BACK=""
+
+LIVE_SRC=/dev/loop0
+msg="$(refuse_live_medium /dev/sda 2>&1 >/dev/null)"; rc=$?
+[ "$rc" -eq 0 ] && echo "ok   an unresolvable live mount does not block (nothing to compare with)" || { echo "FAIL unresolvable mount blocked"; fails=$((fails + 1)); }
+case "$msg" in *"cannot"*"/run/initramfs/live"*|*"/run/initramfs/live"*"cannot"*) echo "ok   but it warns that the guard is blind" ;; *) echo "FAIL no warning for an unresolvable live mount: '$msg'"; fails=$((fails + 1)) ;; esac
 
 LIVE_SRC=""
 allows  "no live mount (installing from an installed system)" /dev/sda

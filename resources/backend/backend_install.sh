@@ -535,6 +535,10 @@ set_default_shell() {
             return 0
         }
     fi
+    if [ ! -x "$TARGETDIR$shell" ]; then
+        log_ui "$shell is not in the new system; keeping the default shell."
+        return 0
+    fi
     grep -qxF "$shell" "$TARGETDIR/etc/shells" 2>/dev/null || \
         echo "$shell" >> "$TARGETDIR/etc/shells"
     chroot "$TARGETDIR" usermod -s "$shell" root
