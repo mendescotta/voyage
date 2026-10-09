@@ -525,28 +525,40 @@ set_rootpassword() {
     echo "root:$(get_option ROOTPASSWORD)" | chroot "$TARGETDIR" chpasswd -c SHA512
 }
 
-set_default_shell() {
-    local shell pkg USERLOGIN
-    shell="$(distro_value default-shell)"
-    [ -n "$shell" ] && [ "$shell" != "none" ] || return 0
-    pkg="$(distro_values default-shell | sed -n 2p)"
-    if [ -n "$pkg" ] && ! chroot "$TARGETDIR" xbps-query "$pkg" >/dev/null 2>&1; then
-        chroot "$TARGETDIR" xbps-install -Sy "$pkg" >/dev/null 2>&1 || {
-            log_ui "$pkg is not available (offline install); keeping the default shell."
-            return 0
-        }
-    fi
-    if [ ! -x "$TARGETDIR$shell" ]; then
-        log_ui "$shell is not in the new system; keeping the default shell."
+# Gives <account> the shell named <choice> in distro.conf (the default when the choice is empty). The package
+# is installed from the network when the live image lacks it. If the shell cannot be had (offline, unknown
+# name, a package that left no binary behind) the account gets the default shell instead: never a shell that
+# does not exist, which would lock the account out.
+apply_login_shell() {
+    local account="$1" choice="$2" def info path pkg
+    def="$(distro_value default-shell)"
+    [ -n "$choice" ] || choice="$def"
+    [ -n "$choice" ] || return 0
+    if ! info="$(distro_shell_info "$choice")"; then
+        log_ui "$choice is not a shell this installer knows; $account gets $def."
+        [ "$choice" != "$def" ] && apply_login_shell "$account" "$def"
         return 0
     fi
-    grep -qxF "$shell" "$TARGETDIR/etc/shells" 2>/dev/null || \
-        echo "$shell" >> "$TARGETDIR/etc/shells"
-    chroot "$TARGETDIR" usermod -s "$shell" root || log_ui "Warning: could not set $shell for root"
-    USERLOGIN="$(get_option USERLOGIN)"
-    if [ -n "$USERLOGIN" ]; then
-        chroot "$TARGETDIR" usermod -s "$shell" "$USERLOGIN" || log_ui "Warning: could not set $shell for $USERLOGIN"
+    read -r path pkg <<<"$info"
+    if [ -n "$pkg" ] && ! chroot "$TARGETDIR" xbps-query "$pkg" >/dev/null 2>&1; then
+        chroot "$TARGETDIR" xbps-install -Sy "$pkg" >/dev/null 2>&1 || \
+            log_ui "$pkg could not be installed (offline?)."
     fi
+    if [ ! -x "$TARGETDIR$path" ]; then
+        log_ui "$path ($choice) is not in the new system; $account gets $def instead."
+        [ "$choice" != "$def" ] && apply_login_shell "$account" "$def"
+        return 0
+    fi
+    grep -qxF "$path" "$TARGETDIR/etc/shells" 2>/dev/null || echo "$path" >> "$TARGETDIR/etc/shells"
+    chroot "$TARGETDIR" usermod -s "$path" "$account" || log_ui "Warning: could not set $path for $account"
+}
+
+# The login shells of root and the first user. /bin/sh is not touched: it stays dash.
+set_login_shells() {
+    local USERLOGIN
+    apply_login_shell root "$(get_option ROOTSHELL)"
+    USERLOGIN="$(get_option USERLOGIN)"
+    [ -z "$USERLOGIN" ] || apply_login_shell "$USERLOGIN" "$(get_option USERSHELL)"
 }
 
 disable_service() {
@@ -556,15 +568,20 @@ disable_service() {
     esac
 }
 
+# enable_service, but only for a service the new system really has (a link to nothing would be a dangling start)
+enable_service_checked() {
+    if [ ! -e "$TARGETDIR/etc/dinit.d/$1" ] && [ ! -e "$TARGETDIR/etc/sv/$1" ]; then
+        echo "Warning: the new system has no service $1; not enabling it" >&2
+        return 1
+    fi
+    enable_service "$1"
+}
+
 # the services distro.conf switches on or off in the new system
 apply_distro_services() {
     local svc
     for svc in $(distro_values enable); do
-        if [ ! -e "$TARGETDIR/etc/dinit.d/$svc" ] && [ ! -e "$TARGETDIR/etc/sv/$svc" ]; then
-            echo "Warning: the new system has no service $svc; not enabling it" >&2
-            continue
-        fi
-        enable_service "$svc"
+        enable_service_checked "$svc"
     done
     for svc in $(distro_values disable); do
         disable_service "$svc"
@@ -581,6 +598,29 @@ install_distro_packages() {
         return 0
     fi
     chroot "$TARGETDIR" xbps-install -Sy $pkgs || echo "Warning: could not install: $pkgs" >&2
+}
+
+# "Install the VirtualBox guest additions": the packages and services come from distro.conf. voidhw also
+# installs them on a detected VirtualBox guest when hardware drivers are on; doing both is harmless.
+install_vbox_guest() {
+    local pkg svc missing=""
+    [ "$(get_option VBOXGUEST)" = "1" ] || return 0
+    for pkg in $(distro_values vbox-guest-install); do
+        chroot "$TARGETDIR" xbps-query "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
+    done
+    if [ -n "$missing" ]; then
+        if [ "$(get_option UPDATE)" != "1" ]; then
+            log_ui "The VirtualBox guest additions need the internet; install$missing after the first boot."
+            return 0
+        fi
+        chroot "$TARGETDIR" xbps-install -Sy $missing || {
+            log_ui "Could not install$missing; the VirtualBox guest additions were skipped."
+            return 0
+        }
+    fi
+    for svc in $(distro_values vbox-guest-enable); do
+        enable_service_checked "$svc"
+    done
 }
 
 set_useraccount() {
@@ -960,6 +1000,7 @@ install_extra_software
 install_distro_packages
 install_hardware_drivers
 apply_distro_services
+install_vbox_guest
 run_hooks post-copy || die "a post-copy hook failed"
 
 echo "Rebuilding initramfs for the target system..."
@@ -969,7 +1010,7 @@ log_ui "USER_CONFIG"
 set_rootpassword
 set_useraccount
 set_autologin
-set_default_shell
+set_login_shells
 
 log_ui "GRUB_INSTALL"
 set_bootloader

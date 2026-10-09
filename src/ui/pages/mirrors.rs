@@ -23,6 +23,7 @@ pub struct MirrorsPage {
     mirror_row: ComboRow,
     nonfree_row: SwitchRow,
     hw_row: SwitchRow,
+    vbox_row: SwitchRow,
     driver_set_row: ComboRow,
     net: bool,
 }
@@ -51,8 +52,12 @@ impl MirrorsPage {
         let hw_row = SwitchRow::new("Install drivers for this hardware");
         hw_row.set_subtitle("Detecting hardware...");
         hw_row.set_sensitive(false);
+        let vbox_row = SwitchRow::new("Install the VirtualBox guest additions");
+        vbox_row.set_active(sys_data.virtualbox);
+        vbox_row.set_subtitle(&vbox_subtitle(sys_data.virtualbox, sys_data.net));
         software_group.add(&nonfree_row);
         software_group.add(&hw_row);
+        software_group.add(&vbox_row);
         widget.append(software_group.as_ref());
 
         let boot_group = Group::new("Boot drivers");
@@ -90,6 +95,7 @@ impl MirrorsPage {
             mirror_row,
             nonfree_row,
             hw_row,
+            vbox_row,
             driver_set_row,
             net: sys_data.net,
         }
@@ -102,6 +108,7 @@ impl MirrorsPage {
             net: self.net,
             nonfree: self.nonfree_row.is_active(),
             hw_drivers: self.hw_row.is_active(),
+            vbox_guest: self.vbox_row.is_active(),
             driver_set: if self.driver_set_row.selected() == 1 {
                 DriverSet::Targeted
             } else {
@@ -112,11 +119,39 @@ impl MirrorsPage {
     }
 }
 
+/// What the guest-additions switch says about itself.
+fn vbox_subtitle(detected: bool, net: bool) -> String {
+    let what = if detected {
+        "VirtualBox detected. Clipboard, shared folders and display resizing."
+    } else {
+        "For a VirtualBox guest: clipboard, shared folders and display resizing."
+    };
+    if net {
+        what.to_string()
+    } else {
+        format!("{what} Needs the internet: offline they are skipped.")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MirrorsFields {
     pub mirror: String,
     pub net: bool,
     pub nonfree: bool,
     pub hw_drivers: bool,
+    pub vbox_guest: bool,
     pub driver_set: DriverSet,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_guest_additions_subtitle_tells_detection_and_network_apart() {
+        assert!(vbox_subtitle(true, true).starts_with("VirtualBox detected"));
+        assert!(vbox_subtitle(false, true).starts_with("For a VirtualBox guest"));
+        assert!(!vbox_subtitle(true, true).contains("internet"));
+        assert!(vbox_subtitle(true, false).contains("Needs the internet"));
+    }
 }

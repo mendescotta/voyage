@@ -99,6 +99,12 @@ pub fn generate_conf_file(config: &InstallConfig, conf_file: &str) -> std::io::R
             if config.hw_drivers { "1" } else { "0" }.to_string(),
         ),
         ("DRIVERSET", config.driver_set.as_conf_str().to_string()),
+        ("USERSHELL", config.user_shell.clone()),
+        ("ROOTSHELL", config.root_shell.clone()),
+        (
+            "VBOXGUEST",
+            if config.vbox_guest { "1" } else { "0" }.to_string(),
+        ),
         ("BOOTLOADER", config.bootloader_disk.clone()),
         ("BOOTLOADER_TYPE", config.bootloader_type.clone()),
         ("SWAPTYPE", config.swap_strategy.clone()),
@@ -304,6 +310,9 @@ mod tests {
             nonfree: false,
             hw_drivers: false,
             driver_set: crate::backend::config_schema::DriverSet::Generic,
+            user_shell: "zsh".to_string(),
+            root_shell: "bash".to_string(),
+            vbox_guest: true,
             partitions: vec![
                 Partition {
                     dev: "/dev/sda1".to_string(),
@@ -344,6 +353,9 @@ mod tests {
         assert!(content.contains("SWAPTYPE swapfile\n"));
         assert!(content.contains("BTRFS_FLAT 0\n"));
         assert!(content.contains("BTRFS_SNAPSHOTS 0\n"));
+        assert!(content.contains("USERSHELL zsh\n"));
+        assert!(content.contains("ROOTSHELL bash\n"));
+        assert!(content.contains("VBOXGUEST 1\n"));
     }
 
     #[test]

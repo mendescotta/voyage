@@ -15,6 +15,8 @@ pub fn review_rows(config: &InstallConfig) -> Vec<(String, String)> {
             "User account".to_string(),
             format!("{} ({})", config.username, config.userlogin),
         ),
+        ("User shell".to_string(), shell_label(&config.user_shell)),
+        ("Root shell".to_string(), shell_label(&config.root_shell)),
         (
             "User password".to_string(),
             password_state(&config.userpassword),
@@ -31,6 +33,10 @@ pub fn review_rows(config: &InstallConfig) -> Vec<(String, String)> {
         ("Mirror".to_string(), config.mirror.clone()),
         ("System updates".to_string(), yes_no(config.update)),
         ("Nonfree repository".to_string(), yes_no(config.nonfree)),
+        (
+            "VirtualBox guest additions".to_string(),
+            yes_no(config.vbox_guest),
+        ),
         (
             "Hardware drivers".to_string(),
             if config.hw_drivers {
@@ -72,13 +78,24 @@ pub fn edit_page(label: &str) -> Option<usize> {
     use crate::ui::nav::{DISKS, MIRRORS, USERS, WELCOME};
     match label {
         "Language" | "Timezone" | "Keyboard layout" => Some(WELCOME),
-        "Computer name" | "User account" | "User password" | "Root password" | "Auto login" => {
-            Some(USERS)
-        }
-        "Mirror" | "System updates" | "Nonfree repository" | "Hardware drivers"
+        "Computer name" | "User account" | "User shell" | "Root shell" | "User password"
+        | "Root password" | "Auto login" => Some(USERS),
+        "Mirror"
+        | "System updates"
+        | "Nonfree repository"
+        | "VirtualBox guest additions"
+        | "Hardware drivers"
         | "Initramfs drivers" => Some(MIRRORS),
         "Disk layout" | "Swap" | "Filesystem" | "Btrfs layout" | "Bootloader" => Some(DISKS),
         _ => None,
+    }
+}
+
+fn shell_label(name: &str) -> String {
+    if name.is_empty() {
+        "Distro default".to_string()
+    } else {
+        name.to_string()
     }
 }
 
@@ -257,6 +274,9 @@ mod tests {
             nonfree: false,
             hw_drivers: false,
             driver_set: crate::backend::config_schema::DriverSet::Generic,
+            user_shell: "zsh".to_string(),
+            root_shell: "bash".to_string(),
+            vbox_guest: false,
             partitions: vec![
                 Partition {
                     dev: "/dev/sda1".to_string(),
@@ -350,6 +370,9 @@ mod tests {
         assert_eq!(edit_page("Timezone"), Some(WELCOME));
         assert_eq!(edit_page("User password"), Some(USERS));
         assert_eq!(edit_page("Nonfree repository"), Some(MIRRORS));
+        assert_eq!(edit_page("User shell"), Some(USERS));
+        assert_eq!(edit_page("Root shell"), Some(USERS));
+        assert_eq!(edit_page("VirtualBox guest additions"), Some(MIRRORS));
         assert_eq!(edit_page("Bootloader"), Some(DISKS));
         assert_eq!(edit_page("Something new"), None);
     }

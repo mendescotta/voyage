@@ -16,7 +16,7 @@ backend. Flagship project. Public repo. Design notes: @DEVNOTES.md (local, gitig
 - The backend reports progress as `>>> PROGRESS n` lines (percent of the root copy) next to the
   `>>> TOKEN` milestones; the runner maps them into the copy slice of the bar (`COPY_RANGE`).
 - The live medium is hidden in the UI (`Disk::live_medium`) and refused by `live_guard.sh`; keep both.
-- Distro policy (login shell, extra/removed packages, services) is `resources/backend/distro.conf` and hooks,
+- Distro policy (offered shells and the default, extra/removed packages, services, VirtualBox guest set) is `resources/backend/distro.conf` and hooks,
   parsed by `distro_config.sh`; do not hard-code distro choices in `backend_install.sh`.
 - No cancel once the install runs (`ui::nav::close_allowed`); there is deliberately no interrupt path.
 - Destructive steps need two confirmations (auto-partition warning, review page).

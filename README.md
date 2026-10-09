@@ -10,8 +10,15 @@ rootfs copy, bootloader, users) from a tabbed UI: Welcome, Mirror and Software, 
 - Real progress while the system is copied (a percentage from `tar` checkpoints), not a timer.
 - Every tab is available at any time. Review has an Edit button per choice; after editing, Next becomes
   "Back to review". Review and Install validate all pages again.
-- Distro policy is data, not code: `resources/backend/distro.conf` sets the login shell, extra packages,
-  packages to remove and services to enable or disable. An ISO replaces it by shipping
+- Login shell for the user and for root, chosen separately on the Users page: bash (the default), zsh or
+  fish. Shells that are not on the live image are installed from the network; offline, or if that fails,
+  the account gets the default shell, never a shell that is missing. `/bin/sh` stays dash.
+- "Install the VirtualBox guest additions" on the Mirror and Software page; on by default when the machine
+  is a VirtualBox guest. It installs `virtualbox-ose-guest` and starts `vboxservice` (voidhw does the same
+  on a detected guest when hardware drivers are on; doing both is harmless).
+- Distro policy is data, not code: `resources/backend/distro.conf` sets the shells on offer and
+  the default, extra packages, packages to remove, services to enable or disable and what the VirtualBox
+  option installs. An ISO replaces it by shipping
   `/etc/voyage/distro.conf`. Executable hooks in `/etc/voyage/hooks.d/{pre-copy,post-copy,post-install}/`
   run in name order with `TARGETDIR`, `INIT_SYSTEM` and `CONF_FILE` set; they must be owned by root and not
   writable by others, and a failing hook stops the install unless its name ends in `.optional`.

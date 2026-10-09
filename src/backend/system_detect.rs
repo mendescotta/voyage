@@ -42,6 +42,18 @@ pub fn detect_efi() -> bool {
     Path::new("/sys/firmware/efi").exists()
 }
 
+/// True for a VirtualBox guest, from the DMI strings it reports ("VirtualBox" / "innotek GmbH").
+pub fn is_virtualbox(product_name: &str, sys_vendor: &str) -> bool {
+    product_name.trim().eq_ignore_ascii_case("virtualbox")
+        || sys_vendor.to_ascii_lowercase().contains("innotek")
+}
+
+pub fn detect_virtualbox() -> bool {
+    let read =
+        |name: &str| fs::read_to_string(format!("/sys/class/dmi/id/{name}")).unwrap_or_default();
+    is_virtualbox(&read("product_name"), &read("sys_vendor"))
+}
+
 pub fn has_internet(timeout: Duration) -> bool {
     for url in [
         "https://repo-default.voidlinux.org/",
@@ -687,5 +699,21 @@ mod tests {
         let json = r#"{"blockdevices":[{"name":"sdc","size":"8G","type":"disk","model":"X","fstype":null,"mountpoint":null,
           "children":[{"name":"sdc1","size":"8G","type":"part","fstype":"iso9660","mountpoint":"/run/initramfs/live"}]}]}"#;
         assert!(parse_disks(json)[0].live_medium);
+    }
+
+    #[test]
+    fn virtualbox_is_recognised_from_the_dmi_strings() {
+        assert!(is_virtualbox("VirtualBox\n", "innotek GmbH\n"));
+        assert!(is_virtualbox("VirtualBox", ""));
+        assert!(is_virtualbox("", "innotek GmbH"));
+        assert!(is_virtualbox("virtualbox", "Oracle Corporation"));
+    }
+
+    #[test]
+    fn other_machines_are_not_virtualbox() {
+        assert!(!is_virtualbox("KVM", "QEMU"));
+        assert!(!is_virtualbox("VMware Virtual Platform", "VMware, Inc."));
+        assert!(!is_virtualbox("ThinkPad X1", "LENOVO"));
+        assert!(!is_virtualbox("", ""));
     }
 }

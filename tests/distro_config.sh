@@ -19,7 +19,9 @@ DISTRO_CONF_OVERRIDE="$T/override.conf"
 
 cat > "$DISTRO_CONF_DEFAULT" <<'C'
 # comment line
-default-shell /usr/bin/fish fish-shell   # trailing comment
+shell bash /bin/bash
+shell fish /usr/bin/fish fish-shell   # trailing comment
+default-shell bash
 remove voyage xmirror
 remove dialog
 install nano htop
@@ -29,15 +31,19 @@ C
 
 # ---- parsing
 check "values of a key, across lines, comments ignored" "$(distro_values remove | tr '\n' ' ')" "voyage xmirror dialog "
-check "a single value"                    "$(distro_value default-shell)" "/usr/bin/fish"
-check "the optional package of the shell" "$(distro_values default-shell | sed -n 2p)" "fish-shell"
+check "the default shell is a name"       "$(distro_value default-shell)" "bash"
+check "the offered shells, in order"      "$(distro_shell_names | tr '\n' ' ')" "bash fish "
+check "a shell's path and package"        "$(distro_shell_info fish)" "/usr/bin/fish fish-shell"
+check "a shell without a package"         "$(distro_shell_info bash)" "/bin/bash"
+distro_shell_info nosuch >/dev/null 2>&1 && bad "an undefined shell was found" || ok "an undefined shell is not found"
 check "an absent key has no values"       "$(distro_values nothing | wc -l)" "0"
 check "install list"                      "$(distro_values install | tr '\n' ' ')" "nano htop "
 distro_conf_check 2>/dev/null && ok "a good file passes the check" || bad "a good file was rejected"
 
 # ---- override replaces the shipped file entirely
-printf 'default-shell none\nremove foo\n' > "$DISTRO_CONF_OVERRIDE"
-check "the override wins"                 "$(distro_value default-shell)" "none"
+printf 'shell zsh /usr/bin/zsh zsh\ndefault-shell zsh\nremove foo\n' > "$DISTRO_CONF_OVERRIDE"
+check "the override wins"                 "$(distro_value default-shell)" "zsh"
+check "and brings its own shells"         "$(distro_shell_names | tr '\n' ' ')" "zsh "
 check "and replaces, not merges"          "$(distro_values remove | tr '\n' ' ')" "foo "
 check "nothing left from the shipped file" "$(distro_values install | wc -l)" "0"
 rm -f "$DISTRO_CONF_OVERRIDE"
@@ -48,23 +54,32 @@ try "unknown key"                       "instal nano"
 try "package name with a shell metacharacter" 'install nano;rm'
 try "package name starting with a dash" 'install -Rf'
 try "service name with a slash"         'enable ../etc'
-try "shell that is not an absolute path" 'default-shell fish'
-try "shell with a space-less odd char"  'default-shell /usr/bin/fi$h'
-try "shell path with .. segments"       'default-shell /usr/bin/../../tmp/x'
-try "shell path with a double slash"    'default-shell /usr//bin/fish'
+try "shell that is not an absolute path" 'shell fish usr/bin/fish'
+try "shell with an odd character in the path" 'shell fish /usr/bin/fi$h'
+try "shell path with .. segments"       'shell fish /usr/bin/../../tmp/x'
+try "shell path with a double slash"    'shell fish /usr//bin/fish'
+try "shell name with capitals"          'shell Fish /usr/bin/fish'
+try "shell name starting with a dash"   'shell -x /usr/bin/fish'
+try "shell without a path"              'shell fish'
+try "shell with a bad package name"     'shell fish /usr/bin/fish -Rf'
+try "default shell that is not defined" 'default-shell fish'
+try "default shell given as a path"     $'shell fish /usr/bin/fish\ndefault-shell /usr/bin/fish'
+try "vbox package with a metacharacter" 'vbox-guest-install a;b'
+try "vbox service with a slash"         'vbox-guest-enable ../x'
 try "key without values"                'install'
-try "too many words for the shell"      'default-shell /usr/bin/fish fish-shell extra'
-printf 'default-shell /usr/bin/fish\nbogus x\n' > "$DISTRO_CONF_DEFAULT"; distro_conf_check 2>"$T/err"
+try "too many words for a shell"        'shell fish /usr/bin/fish fish-shell extra'
+try "two words for default-shell"       $'shell a /bin/a\nshell b /bin/b\ndefault-shell a b'
+printf 'shell bash /bin/bash\nbogus x\n' > "$DISTRO_CONF_DEFAULT"; distro_conf_check 2>"$T/err"
 grep -q ':2:' "$T/err" && ok "the message names the line" || bad "message lacks the line number: $(cat "$T/err")"
 
 # ---- the override file is held to the same trust rules as hooks
-printf 'default-shell none\n' > "$DISTRO_CONF_OVERRIDE"
+printf 'shell bash /bin/bash\n' > "$DISTRO_CONF_OVERRIDE"
 distro_conf_check 2>/dev/null && ok "an override owned by the trusted user passes" || bad "trusted override rejected"
 chmod 666 "$DISTRO_CONF_OVERRIDE"
 distro_conf_check 2>"$T/err" && bad "a world-writable override was accepted" || ok "a world-writable override is refused"
 grep -q "override" "$T/err" && ok "and the message says why" || bad "no explanation: $(cat "$T/err")"
 rm -f "$DISTRO_CONF_OVERRIDE"
-printf 'default-shell none\n' > "$DISTRO_CONF_OVERRIDE"
+printf 'shell bash /bin/bash\n' > "$DISTRO_CONF_OVERRIDE"
 distro_conf_check 2>"$T/err" && ok "an override without remove still passes" || bad "override without remove rejected"
 grep -q "remove" "$T/err" && ok "but it says the installer stays on the new system" || bad "no note about the missing remove line: $(cat "$T/err")"
 printf 'remove voyage\n' > "$DISTRO_CONF_OVERRIDE"
@@ -75,7 +90,13 @@ printf 'install nano\n' > "$DISTRO_CONF_DEFAULT"
 # ---- the shipped default keeps today's behaviour
 DISTRO_CONF_DEFAULT="$HERE/resources/backend/distro.conf"
 distro_conf_check 2>"$T/err" && ok "the shipped distro.conf is valid" || bad "shipped distro.conf: $(cat "$T/err")"
-check "default login shell stays fish"  "$(distro_value default-shell)" "/usr/bin/fish"
+check "the default login shell is bash" "$(distro_value default-shell)" "bash"
+check "bash, zsh and fish are offered"  "$(distro_shell_names | tr '\n' ' ')" "bash zsh fish "
+check "bash needs no package"           "$(distro_shell_info bash)" "/bin/bash"
+check "zsh comes from its package"      "$(distro_shell_info zsh)" "/usr/bin/zsh zsh"
+check "fish comes from fish-shell"      "$(distro_shell_info fish)" "/usr/bin/fish fish-shell"
+check "VirtualBox guest packages"       "$(distro_values vbox-guest-install | tr '\n' ' ')" "virtualbox-ose-guest "
+check "VirtualBox guest services"       "$(distro_values vbox-guest-enable | tr '\n' ' ')" "vboxservice "
 check "installer-only packages are unchanged" "$(distro_values remove | tr '\n' ' ')" "voyage xmirror dialog xtools-minimal "
 
 # ---- hooks
@@ -129,7 +150,7 @@ chmod 755 "$T/lnk-real"
 HOOKS_DIRS="$OLD_DIRS"
 
 # the override has parents too
-mkdir -p "$T/ov"; printf 'default-shell none\n' > "$T/ov/distro.conf"; chmod 777 "$T/ov"
+mkdir -p "$T/ov"; printf 'shell bash /bin/bash\n' > "$T/ov/distro.conf"; chmod 777 "$T/ov"
 DISTRO_CONF_OVERRIDE="$T/ov/distro.conf"
 distro_conf_check 2>/dev/null && bad "an override in a world-writable directory was accepted" || ok "an override in a world-writable directory is refused"
 chmod 755 "$T/ov"; DISTRO_CONF_OVERRIDE="$T/override.conf"

@@ -56,6 +56,10 @@ pub struct InstallFields {
     pub nonfree: bool,
     pub hw_drivers: bool,
     pub driver_set: DriverSet,
+    /// Login shell names from distro.conf; empty means the distro's default.
+    pub user_shell: String,
+    pub root_shell: String,
+    pub vbox_guest: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +80,9 @@ pub struct InstallConfig {
     pub nonfree: bool,
     pub hw_drivers: bool,
     pub driver_set: DriverSet,
+    pub user_shell: String,
+    pub root_shell: String,
+    pub vbox_guest: bool,
     pub partitions: Vec<Partition>,
     pub bootloader_disk: String,
     pub bootloader_type: String,
@@ -346,6 +353,18 @@ pub fn build_config(
         ));
     }
 
+    for (key, label, shell) in [
+        ("usershell", "User shell", &fields.user_shell),
+        ("rootshell", "Root shell", &fields.root_shell),
+    ] {
+        if !shell.is_empty() && !super::distro::shell_name_valid(shell) {
+            errors.push((
+                key.to_string(),
+                format!("{label} is not a valid shell name."),
+            ));
+        }
+    }
+
     for (key, label, pwd) in [
         ("userpassword", "User password", &fields.userpassword),
         ("rootpassword", "Root password", &fields.rootpassword),
@@ -400,6 +419,9 @@ pub fn build_config(
         nonfree: fields.nonfree,
         hw_drivers: fields.hw_drivers,
         driver_set: fields.driver_set,
+        user_shell: fields.user_shell.clone(),
+        root_shell: fields.root_shell.clone(),
+        vbox_guest: fields.vbox_guest,
         partitions,
         bootloader_disk: disk_dev,
         bootloader_type: disk.bootloader_type.clone(),
@@ -430,6 +452,9 @@ mod tests {
             nonfree: false,
             hw_drivers: false,
             driver_set: DriverSet::Generic,
+            user_shell: "bash".to_string(),
+            root_shell: "bash".to_string(),
+            vbox_guest: false,
         }
     }
 
@@ -674,5 +699,52 @@ mod tests {
         fields.mirror = "Local".to_string();
         let cfg = build_config(&fields, &efi_disk_choices(), "").unwrap();
         assert!(!cfg.update);
+    }
+
+    fn built(fields: &InstallFields) -> Result<InstallConfig, Vec<FieldError>> {
+        let disk = DiskChoices {
+            raw_parts: efi_parts(),
+            filesystem: "ext4".to_string(),
+            want_efi: true,
+            swap_strategy: SwapStrategy::None,
+            bootloader_type: "grub".to_string(),
+            btrfs_flat: false,
+            btrfs_snapshots: false,
+        };
+        build_config(fields, &disk, "gdm")
+    }
+
+    #[test]
+    fn the_shell_and_guest_choices_reach_the_config() {
+        let mut fields = valid_fields();
+        fields.user_shell = "zsh".to_string();
+        fields.root_shell = "fish".to_string();
+        fields.vbox_guest = true;
+        let config = built(&fields).unwrap();
+        assert_eq!(config.user_shell, "zsh");
+        assert_eq!(config.root_shell, "fish");
+        assert!(config.vbox_guest);
+    }
+
+    #[test]
+    fn a_shell_name_with_a_path_or_option_is_refused() {
+        for bad in ["/bin/sh", "-c", "zsh;rm", "Zsh", "a b"] {
+            let mut fields = valid_fields();
+            fields.user_shell = bad.to_string();
+            let errors = built(&fields).unwrap_err();
+            assert!(errors.iter().any(|(k, _)| k == "usershell"), "{bad}");
+            let mut fields = valid_fields();
+            fields.root_shell = bad.to_string();
+            let errors = built(&fields).unwrap_err();
+            assert!(errors.iter().any(|(k, _)| k == "rootshell"), "{bad}");
+        }
+    }
+
+    #[test]
+    fn an_empty_shell_means_the_distro_default() {
+        let mut fields = valid_fields();
+        fields.user_shell = String::new();
+        fields.root_shell = String::new();
+        assert!(built(&fields).is_ok());
     }
 }

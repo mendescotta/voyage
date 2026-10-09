@@ -5,8 +5,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$HERE/resources/backend/backend_install.sh"
 
-eval "$(sed -n '/^enable_service()/,/^}/p;/^disable_service()/,/^}/p;/^apply_distro_services()/,/^}/p;/^install_distro_packages()/,/^}/p;/^set_default_shell()/,/^}/p' "$SCRIPT")"
-for f in enable_service disable_service apply_distro_services install_distro_packages set_default_shell; do
+eval "$(sed -n '/^enable_service()/,/^}/p;/^disable_service()/,/^}/p;/^enable_service_checked()/,/^}/p;/^apply_distro_services()/,/^}/p;/^install_distro_packages()/,/^}/p;/^apply_login_shell()/,/^}/p;/^set_login_shells()/,/^}/p;/^install_vbox_guest()/,/^}/p' "$SCRIPT")"
+for f in enable_service disable_service enable_service_checked apply_distro_services install_distro_packages apply_login_shell set_login_shells install_vbox_guest; do
 	type "$f" >/dev/null 2>&1 || { echo "FAIL $f is not defined in the backend"; exit 1; }
 done
 
@@ -20,7 +20,8 @@ TARGETDIR="$T/target"; CALLS=""; INSTALLED=" "; OPTS_UPDATE=1; OPTS_USERLOGIN=gu
 mkdir -p "$TARGETDIR/etc" "$TARGETDIR/usr/bin" "$TARGETDIR/bin"
 for s in usr/bin/fish bin/bash; do printf '#!/bin/sh\n' > "$TARGETDIR/$s"; chmod +x "$TARGETDIR/$s"; done
 log_ui() { LOGS="$LOGS|$*"; }; LOGS=""
-get_option() { case "$1" in UPDATE) echo "$OPTS_UPDATE" ;; USERLOGIN) echo "$OPTS_USERLOGIN" ;; esac; }
+OPTS_ROOTSHELL=""; OPTS_USERSHELL=""; OPTS_VBOX=0
+get_option() { case "$1" in UPDATE) echo "$OPTS_UPDATE" ;; USERLOGIN) echo "$OPTS_USERLOGIN" ;; ROOTSHELL) echo "$OPTS_ROOTSHELL" ;; USERSHELL) echo "$OPTS_USERSHELL" ;; VBOXGUEST) echo "$OPTS_VBOX" ;; esac; }
 chroot() {
 	shift
 	case "$1" in
@@ -30,34 +31,51 @@ chroot() {
 	esac
 }
 
-# ---- the shipped default behaves like the installer always did
+# ---- login shells: one choice for the user and one for root
 DISTRO_CONF_DEFAULT="$HERE/resources/backend/distro.conf"
-set_default_shell
-check "default: fish is installed when missing and set for root and the user" "$CALLS" "|xbps-install -Sy fish-shell|usermod -s /usr/bin/fish root|usermod -s /usr/bin/fish gui"
-check "default: /etc/shells lists it" "$(grep -c '^/usr/bin/fish$' "$TARGETDIR/etc/shells")" "1"
+mkdir -p "$TARGETDIR/bin" "$TARGETDIR/usr/bin"
+for sh in /bin/bash /usr/bin/zsh /usr/bin/fish; do printf '#!/bin/sh\n' > "$TARGETDIR$sh"; chmod +x "$TARGETDIR$sh"; done
+ln -s dash "$TARGETDIR/bin/sh"
+reset() { CALLS=""; LOGS=""; INSTALLED=" "; OFFLINE=0; OPTS_ROOTSHELL=""; OPTS_USERSHELL=""; OPTS_UPDATE=1; rm -f "$TARGETDIR/etc/shells"; }
 
-CALLS=""; INSTALLED=" fish-shell "
-set_default_shell
-check "an installed shell is not installed again" "$CALLS" "|usermod -s /usr/bin/fish root|usermod -s /usr/bin/fish gui"
-check "/etc/shells is not duplicated" "$(grep -c '^/usr/bin/fish$' "$TARGETDIR/etc/shells")" "1"
+reset; set_login_shells
+check "no choice: both accounts get the default, bash" "$CALLS" "|usermod -s /bin/bash root|usermod -s /bin/bash gui"
+check "bash needs no installation" "$(printf '%s' "$CALLS" | grep -c xbps-install)" "0"
+check "the shell is listed in /etc/shells" "$(grep -c '^/bin/bash$' "$TARGETDIR/etc/shells")" "1"
+check "/bin/sh is still dash" "$(readlink "$TARGETDIR/bin/sh")" "dash"
 
-CALLS=""; INSTALLED=" "; OFFLINE=1
-set_default_shell
-check "offline and missing: the shell is left alone" "$CALLS" "|xbps-install -Sy fish-shell"
-OFFLINE=0
+reset; OPTS_ROOTSHELL=fish; OPTS_USERSHELL=zsh; set_login_shells
+check "root fish, user zsh: both packages installed, each set for its account" "$CALLS" "|xbps-install -Sy fish-shell|usermod -s /usr/bin/fish root|xbps-install -Sy zsh|usermod -s /usr/bin/zsh gui"
+check "both are in /etc/shells" "$(grep -cE '^/usr/bin/(fish|zsh)$' "$TARGETDIR/etc/shells")" "2"
+check "/bin/sh is still dash after a choice" "$(readlink "$TARGETDIR/bin/sh")" "dash"
 
-# ---- a distro that wants bash, or the live image's shell
-printf 'default-shell /bin/bash\n' > "$T/distro.conf"; DISTRO_CONF_DEFAULT="$T/distro.conf"; CALLS=""
-set_default_shell
-check "a shell without a package is only set" "$CALLS" "|usermod -s /bin/bash root|usermod -s /bin/bash gui"
-printf 'default-shell none\n' > "$T/distro.conf"; CALLS=""
-set_default_shell
-check "none leaves the live image's shell" "$CALLS" ""
+reset; INSTALLED=" zsh "; OPTS_USERSHELL=zsh; set_login_shells
+check "an installed shell is not installed again" "$CALLS" "|usermod -s /bin/bash root|usermod -s /usr/bin/zsh gui"
 
-# ---- a failing usermod is reported, not swallowed
-DISTRO_CONF_DEFAULT="$HERE/resources/backend/distro.conf"; INSTALLED=" fish-shell "; LOGS=""
+reset; OPTS_USERSHELL=zsh; OFFLINE=1; mv "$TARGETDIR/usr/bin/zsh" "$T/zsh.hold"
+set_login_shells
+check "zsh cannot be installed and is absent: that account falls back to bash" "$CALLS" "|usermod -s /bin/bash root|xbps-install -Sy zsh|usermod -s /bin/bash gui"
+check "and the install says so" "$(printf '%s' "$LOGS" | grep -c 'zsh')" "1"
+mv "$T/zsh.hold" "$TARGETDIR/usr/bin/zsh"
+
+reset; OPTS_USERSHELL=ksh; set_login_shells
+check "a shell the config does not define falls back to the default" "$CALLS" "|usermod -s /bin/bash root|usermod -s /bin/bash gui"
+check "and is reported" "$(printf '%s' "$LOGS" | grep -c 'ksh')" "1"
+
+reset; INSTALLED=" fish-shell "; OPTS_ROOTSHELL=fish; mv "$TARGETDIR/usr/bin/fish" "$T/fish.hold"
+set_login_shells
+check "a package that left no binary behind is not trusted" "$CALLS" "|usermod -s /bin/bash root|usermod -s /bin/bash gui"
+mv "$T/fish.hold" "$TARGETDIR/usr/bin/fish"
+
+# a distro whose default is zsh
+printf 'shell bash /bin/bash\nshell zsh /usr/bin/zsh zsh\ndefault-shell zsh\n' > "$T/distro.conf"; DISTRO_CONF_DEFAULT="$T/distro.conf"
+reset; INSTALLED=" zsh "; set_login_shells
+check "the default comes from distro.conf" "$CALLS" "|usermod -s /usr/bin/zsh root|usermod -s /usr/bin/zsh gui"
+
+# a failing usermod is reported, not swallowed
+DISTRO_CONF_DEFAULT="$HERE/resources/backend/distro.conf"; reset
 chroot() { shift; case "$1" in xbps-query) return 0 ;; usermod) return 1 ;; esac; }
-set_default_shell
+set_login_shells
 check "usermod failures are logged for root and the user" "$(printf '%s' "$LOGS" | grep -o 'could not set' | wc -l)" "2"
 chroot() {
 	shift
@@ -67,14 +85,7 @@ chroot() {
 		usermod) CALLS="$CALLS|$*" ;;
 	esac
 }
-LOGS=""; DISTRO_CONF_DEFAULT="$T/distro.conf"; INSTALLED=" "
-
-# ---- a shell that is not in the new system must never become a login shell
-printf 'default-shell /usr/bin/zsh zsh\n' > "$T/distro.conf"; CALLS=""; LOGS=""; INSTALLED=" zsh "
-set_default_shell
-check "a configured shell that is missing is not set" "$CALLS" ""
-check "and the install says so" "$(printf '%s' "$LOGS" | grep -c 'zsh')" "1"
-check "nor added to /etc/shells" "$(grep -c zsh "$TARGETDIR/etc/shells")" "0"
+reset; DISTRO_CONF_DEFAULT="$T/distro.conf"
 
 # ---- extra packages
 printf 'install nano htop\n' > "$T/distro.conf"; CALLS=""
@@ -98,6 +109,38 @@ check "dinit: and no dangling link is made" "$([ -L "$TARGETDIR/etc/dinit.d/boot
 INIT_SYSTEM=runit; rm -rf "$TARGETDIR/etc"; mkdir -p "$TARGETDIR/etc/sv/sshd" "$TARGETDIR/etc/runit/runsvdir/default"
 apply_distro_services 2>/dev/null
 check "runit: a service is enabled"   "$(readlink "$TARGETDIR/etc/runit/runsvdir/default/sshd")" "/etc/sv/sshd"
+
+# ---- VirtualBox guest additions
+DISTRO_CONF_DEFAULT="$HERE/resources/backend/distro.conf"; INIT_SYSTEM=dinit
+rm -rf "$TARGETDIR/etc"; mkdir -p "$TARGETDIR/etc/dinit.d/boot.d"; touch "$TARGETDIR/etc/dinit.d/vboxservice"
+reset; OPTS_VBOX=0; install_vbox_guest
+check "not requested: nothing happens" "$CALLS" ""
+check "and no service is started" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
+
+reset; OPTS_VBOX=1; install_vbox_guest
+check "requested, online: the guest package is installed" "$CALLS" "|xbps-install -Sy virtualbox-ose-guest"
+check "and vboxservice is enabled" "$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "/etc/dinit.d/vboxservice"
+
+rm -f "$TARGETDIR/etc/dinit.d/boot.d/vboxservice"
+reset; OPTS_VBOX=1; OPTS_UPDATE=0; install_vbox_guest
+check "requested, offline, not on the image: no install attempt" "$CALLS" ""
+check "and the user is told" "$(printf '%s' "$LOGS" | grep -c 'internet')" "1"
+check "and nothing is enabled" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
+
+reset; OPTS_VBOX=1; OPTS_UPDATE=0; INSTALLED=" virtualbox-ose-guest "; install_vbox_guest
+check "offline but already on the image: no install, service enabled" "$CALLS|$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "|/etc/dinit.d/vboxservice"
+
+rm -f "$TARGETDIR/etc/dinit.d/boot.d/vboxservice"
+reset; OPTS_VBOX=1; OFFLINE=1; install_vbox_guest
+check "a failed install is reported and does not stop the installer" "$(printf '%s' "$LOGS" | grep -c 'Could not install')" "1"
+check "and nothing is enabled" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
+
+# ---- contract: what the GUI writes into the conf file is what the backend reads
+WRITER="$HERE/src/backend/install_runner.rs"
+for key in USERSHELL ROOTSHELL VBOXGUEST; do
+	w=$(grep -c "\"$key\"," "$WRITER" 2>/dev/null); r=$(grep -c "get_option $key" "$SCRIPT")
+	check "$key is written by the GUI and read by the backend" "$([ "$w" -ge 1 ] && [ "$r" -ge 1 ] && echo both || echo "writer=$w reader=$r")" "both"
+done
 
 # ---- the stages sit where the flow needs them
 line() { grep -n "$1" "$SCRIPT" | tail -1 | cut -d: -f1; }

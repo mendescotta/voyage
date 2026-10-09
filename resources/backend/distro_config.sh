@@ -4,7 +4,10 @@
 # Hooks run as root, so they are held to strict rules (run_hooks).
 #
 # distro.conf: one `key value...` per line, `#` starts a comment. Unknown keys are an error.
-#   default-shell <absolute path|none> [package]   login shell of root and the first user
+#   shell <name> <absolute path> [package]         a login shell the installer may offer (package installed if missing)
+#   default-shell <name>                           the shell both accounts get unless the user picks another
+#   vbox-guest-install <package>...                installed when the user asks for the VirtualBox guest additions
+#   vbox-guest-enable <service>...                 services switched on with them
 #   install <package>...                           extra packages for the new system (online installs only)
 #   remove <package>...                            packages removed from the new system (the installer itself)
 #   enable <service>...  /  disable <service>...   services of the new system, by the init's own names
@@ -33,6 +36,25 @@ distro_value() {
     distro_values "$1" | head -n 1
 }
 
+# the names of the shells the config offers, one per line, in file order
+distro_shell_names() {
+    local f
+    f="$(distro_conf_file)"
+    [ -f "$f" ] || return 0
+    awk '{ sub(/#.*/, "") } $1 == "shell" { print $2 }' "$f"
+}
+
+# "path [package]" of a shell by name; fails when the config does not define it
+distro_shell_info() {
+    local f
+    f="$(distro_conf_file)"
+    [ -f "$f" ] || return 1
+    awk -v name="$1" '
+        { sub(/#.*/, "") }
+        $1 == "shell" && $2 == name { print $3 (NF >= 4 ? " " $4 : ""); found = 1; exit }
+        END { exit (found ? 0 : 1) }' "$f"
+}
+
 # Fails (with file:line: reason on stderr) on an unknown key or an unsafe name. Run before anything is touched.
 distro_conf_check() {
     local f
@@ -51,11 +73,16 @@ distro_conf_check() {
         NF == 0 { next }
         {
             key = $1
-            if (key == "default-shell") {
-                if (NF < 2 || NF > 3) bad("default-shell takes a path (or none) and an optional package")
-                else if ($2 != "none" && ($2 !~ /^\/[A-Za-z0-9._+\/-]+$/ || $2 ~ /\.\.|\/\//)) bad("default-shell needs a plain absolute path (no .. or //) or none: " $2)
-                else if (NF == 3 && $3 !~ /^[A-Za-z0-9][A-Za-z0-9._+-]*$/) bad("invalid package name: " $3)
-            } else if (key == "install" || key == "remove" || key == "enable" || key == "disable") {
+            if (key == "shell") {
+                if (NF < 3 || NF > 4) bad("shell takes a name, an absolute path and an optional package")
+                else if ($2 !~ /^[a-z][a-z0-9-]*$/) bad("invalid shell name (lowercase letters, digits, dashes): " $2)
+                else if ($3 !~ /^\/[A-Za-z0-9._+\/-]+$/ || $3 ~ /\.\.|\/\//) bad("a shell needs a plain absolute path (no .. or //): " $3)
+                else if (NF == 4 && $4 !~ /^[A-Za-z0-9][A-Za-z0-9._+-]*$/) bad("invalid package name: " $4)
+                else shells[$2] = 1
+            } else if (key == "default-shell") {
+                if (NF != 2) bad("default-shell takes exactly one shell name")
+                else { dflt = $2; dflt_line = NR }
+            } else if (key == "install" || key == "remove" || key == "enable" || key == "disable" || key == "vbox-guest-install" || key == "vbox-guest-enable") {
                 if (NF < 2) bad(key " needs at least one name")
                 for (i = 2; i <= NF; i++)
                     if ($i !~ /^[A-Za-z0-9][A-Za-z0-9._+-]*$/) bad("invalid name for " key ": " $i)
@@ -63,7 +90,13 @@ distro_conf_check() {
                 bad("unknown key: " key)
             }
         }
-        END { exit rc }' "$f"
+        END {
+            if (dflt != "" && !(dflt in shells)) {
+                printf "%s:%d: default-shell names a shell that no shell line defines: %s\n", file, dflt_line, dflt > "/dev/stderr"
+                rc = 1
+            }
+            exit rc
+        }' "$f"
 }
 
 # A path may feed root only if the trusted user owns it and nobody else can write to it...
