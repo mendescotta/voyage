@@ -1,3 +1,5 @@
+#[cfg(test)]
+pub mod gtk_test;
 pub mod nav;
 pub mod pages;
 pub mod widgets;

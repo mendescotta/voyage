@@ -391,41 +391,39 @@ mod tests {
 
     #[test]
     fn edit_buttons_open_the_page_that_owns_the_choice() {
-        if gtk::init().is_err() {
-            eprintln!("no display: skipping the GTK part of the Review test");
-            return;
-        }
-        use crate::ui::nav::{DISKS, MIRRORS, USERS, WELCOME};
-        use std::cell::RefCell;
-        use std::rc::Rc;
+        crate::ui::gtk_test::run("the Review test", || {
+            use crate::ui::nav::{DISKS, MIRRORS, USERS, WELCOME};
+            use std::cell::RefCell;
+            use std::rc::Rc;
 
-        let page = ReviewPage::new();
-        let opened = Rc::new(RefCell::new(Vec::new()));
-        {
-            let opened = opened.clone();
-            page.set_edit_handler(move |p| opened.borrow_mut().push(p));
-        }
-        page.set_config(&sample_config());
+            let page = ReviewPage::new();
+            let opened = Rc::new(RefCell::new(Vec::new()));
+            {
+                let opened = opened.clone();
+                page.set_edit_handler(move |p| opened.borrow_mut().push(p));
+            }
+            page.set_config(&sample_config());
 
-        let mut all = Vec::new();
-        buttons(page.widget.upcast_ref(), &mut all);
-        let edit: Vec<_> = all
-            .iter()
-            .filter(|b| b.label().as_deref() == Some("Edit"))
-            .collect();
-        let editable = review_rows(&sample_config())
-            .iter()
-            .filter(|(l, _)| edit_page(l).is_some())
-            .count();
-        assert_eq!(edit.len(), editable, "one Edit button per editable row");
+            let mut all = Vec::new();
+            buttons(page.widget.upcast_ref(), &mut all);
+            let edit: Vec<_> = all
+                .iter()
+                .filter(|b| b.label().as_deref() == Some("Edit"))
+                .collect();
+            let editable = review_rows(&sample_config())
+                .iter()
+                .filter(|(l, _)| edit_page(l).is_some())
+                .count();
+            assert_eq!(edit.len(), editable, "one Edit button per editable row");
 
-        for b in &edit {
-            b.emit_clicked();
-        }
-        let opened = opened.borrow();
-        for page in [WELCOME, USERS, MIRRORS, DISKS] {
-            assert!(opened.contains(&page), "page {page} was never opened");
-        }
-        assert!(opened.iter().all(|p| *p <= DISKS));
+            for b in &edit {
+                b.emit_clicked();
+            }
+            let opened = opened.borrow();
+            for page in [WELCOME, USERS, MIRRORS, DISKS] {
+                assert!(opened.contains(&page), "page {page} was never opened");
+            }
+            assert!(opened.iter().all(|p| *p <= DISKS));
+        });
     }
 }

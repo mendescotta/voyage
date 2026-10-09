@@ -238,32 +238,28 @@ mod tests {
 
     #[test]
     fn the_page_offers_the_configured_shells_and_defaults_to_bash() {
-        if gtk::init().is_err() {
-            eprintln!("no display: skipping the GTK part of the Users test");
-            return;
-        }
-        let page = UsersPage::new(&SysData::default());
-        assert_eq!(page.shell_names, ["bash", "zsh", "fish"]);
-        let (fields, _) = page.collect();
-        assert_eq!(fields.user_shell, "bash");
-        assert_eq!(fields.root_shell, "bash");
+        crate::ui::gtk_test::run("the Users test", || {
+            let page = UsersPage::new(&SysData::default());
+            assert_eq!(page.shell_names, ["bash", "zsh", "fish"]);
+            let (fields, _) = page.collect();
+            assert_eq!(fields.user_shell, "bash");
+            assert_eq!(fields.root_shell, "bash");
+        });
     }
 
     #[test]
     fn the_user_and_root_shells_are_chosen_separately() {
-        if gtk::init().is_err() {
-            eprintln!("no display: skipping the GTK part of the Users test");
-            return;
-        }
-        let page = UsersPage::new(&SysData::default());
-        page.user_shell_row.set_selected(1);
-        page.root_shell_row.set_selected(2);
-        let (fields, _) = page.collect();
-        assert_eq!(fields.user_shell, "zsh");
-        assert_eq!(fields.root_shell, "fish");
-        page.user_shell_row.set_selected(0);
-        let (fields, _) = page.collect();
-        assert_eq!(fields.user_shell, "bash");
-        assert_eq!(fields.root_shell, "fish", "root keeps its own choice");
+        crate::ui::gtk_test::run("the Users test", || {
+            let page = UsersPage::new(&SysData::default());
+            page.user_shell_row.set_selected(1);
+            page.root_shell_row.set_selected(2);
+            let (fields, _) = page.collect();
+            assert_eq!(fields.user_shell, "zsh");
+            assert_eq!(fields.root_shell, "fish");
+            page.user_shell_row.set_selected(0);
+            let (fields, _) = page.collect();
+            assert_eq!(fields.user_shell, "bash");
+            assert_eq!(fields.root_shell, "fish", "root keeps its own choice");
+        });
     }
 }
