@@ -42,6 +42,9 @@ distro_conf_check() {
         echo "$f: the override must be owned by uid $HOOKS_TRUSTED_UID and not writable by others" >&2
         return 1
     fi
+    if [ "$f" = "$DISTRO_CONF_OVERRIDE" ] && ! grep -qE '^[[:space:]]*remove[[:space:]]' "$f"; then
+        echo "note: $f has no 'remove' line, so the installer packages stay on the new system" >&2
+    fi
     awk -v file="$f" '
         function bad(msg) { printf "%s:%d: %s\n", file, NR, msg > "/dev/stderr"; rc = 1 }
         { sub(/#.*/, "") }
@@ -63,12 +66,38 @@ distro_conf_check() {
         END { exit rc }' "$f"
 }
 
-# A path may feed root only if the trusted user owns it and nobody else can write to it.
-_hook_trusted() {
+# A path may feed root only if the trusted user owns it and nobody else can write to it...
+_hook_self_trusted() {
     local path="$1" owner mode
     read -r owner mode < <(stat -c '%u %a' "$path" 2>/dev/null) || return 1
     [ "$owner" = "$HOOKS_TRUSTED_UID" ] || return 1
     [ $(( 8#$mode & 8#022 )) -eq 0 ]
+}
+
+# ...and so must every directory above it (symlinks are resolved first). Someone who can write to a parent
+# can swap the whole tree between the check and the execution. A sticky shared directory such as /tmp is
+# accepted when the entry below it is ours: nobody else can rename or remove that.
+_hook_chain_trusted() {
+    local path child owner mode child_owner
+    path="$(readlink -f -- "$1" 2>/dev/null)" || return 1
+    [ -n "$path" ] || return 1
+    child="$path"
+    while [ "$path" != "/" ]; do
+        path="$(dirname "$path")"
+        read -r owner mode < <(stat -c '%u %a' "$path" 2>/dev/null) || return 1
+        [ "$owner" = "0" ] || [ "$owner" = "$HOOKS_TRUSTED_UID" ] || return 1
+        if [ $(( 8#$mode & 8#022 )) -ne 0 ]; then
+            [ $(( 8#$mode & 8#1000 )) -ne 0 ] || return 1
+            child_owner="$(stat -c '%u' "$child" 2>/dev/null)" || return 1
+            [ "$child_owner" = "$HOOKS_TRUSTED_UID" ] || return 1
+        fi
+        child="$path"
+    done
+    return 0
+}
+
+_hook_trusted() {
+    _hook_self_trusted "$1" && _hook_chain_trusted "$1"
 }
 
 # run_hooks <stage>: runs the executables of <dir>/<stage>/ for every hooks directory, in name order.

@@ -64,6 +64,12 @@ chmod 666 "$DISTRO_CONF_OVERRIDE"
 distro_conf_check 2>"$T/err" && bad "a world-writable override was accepted" || ok "a world-writable override is refused"
 grep -q "override" "$T/err" && ok "and the message says why" || bad "no explanation: $(cat "$T/err")"
 rm -f "$DISTRO_CONF_OVERRIDE"
+printf 'default-shell none\n' > "$DISTRO_CONF_OVERRIDE"
+distro_conf_check 2>"$T/err" && ok "an override without remove still passes" || bad "override without remove rejected"
+grep -q "remove" "$T/err" && ok "but it says the installer stays on the new system" || bad "no note about the missing remove line: $(cat "$T/err")"
+printf 'remove voyage\n' > "$DISTRO_CONF_OVERRIDE"
+distro_conf_check 2>"$T/err"; check "no note when there is a remove line" "$(wc -c < "$T/err")" "0"
+rm -f "$DISTRO_CONF_OVERRIDE"
 printf 'install nano\n' > "$DISTRO_CONF_DEFAULT"
 
 # ---- the shipped default keeps today's behaviour
@@ -106,6 +112,27 @@ mkdir -p "$T/with space/post-copy"; mk "$T/with space/post-copy/10-spaced" 'echo
 OLD_DIRS="$HOOKS_DIRS"; HOOKS_DIRS="$T/with space"; : > "$OUT"; run_hooks post-copy >/dev/null 2>&1
 check "a directory with a space in its path is not skipped" "$(tr '\n' '|' < "$OUT")" "spaced|"
 HOOKS_DIRS="$OLD_DIRS"
+
+# every parent directory counts: a hook below a directory others can write to could be swapped under us
+mkdir -p "$T/wparent/hooks/post-copy"; mk "$T/wparent/hooks/post-copy/10-x" 'echo CHAIN >> "$OUT"'
+chmod 777 "$T/wparent"
+OLD_DIRS="$HOOKS_DIRS"; HOOKS_DIRS="$T/wparent/hooks"; : > "$OUT"
+run_hooks post-copy >/dev/null 2>"$T/err" && bad "a hook below a world-writable parent ran" || ok "a world-writable parent directory is refused"
+check "and it did not run" "$(grep -c CHAIN "$OUT")" "0"
+chmod 1777 "$T/wparent"; : > "$OUT"
+run_hooks post-copy >/dev/null 2>&1 && ok "a sticky shared parent (like /tmp) is fine for an entry we own" || bad "sticky parent was refused"
+chmod 755 "$T/wparent"
+mkdir -p "$T/lnk-real/post-copy"; mk "$T/lnk-real/post-copy/10-y" 'echo LINK >> "$OUT"'; ln -s "$T/lnk-real" "$T/lnk"
+HOOKS_DIRS="$T/lnk"; : > "$OUT"; run_hooks post-copy >/dev/null 2>&1 && ok "a symlinked hooks directory is followed and checked" || bad "symlinked dir refused"
+chmod 777 "$T/lnk-real"; run_hooks post-copy >/dev/null 2>&1 && bad "a writable real directory behind a symlink ran" || ok "and its real location is what is judged"
+chmod 755 "$T/lnk-real"
+HOOKS_DIRS="$OLD_DIRS"
+
+# the override has parents too
+mkdir -p "$T/ov"; printf 'default-shell none\n' > "$T/ov/distro.conf"; chmod 777 "$T/ov"
+DISTRO_CONF_OVERRIDE="$T/ov/distro.conf"
+distro_conf_check 2>/dev/null && bad "an override in a world-writable directory was accepted" || ok "an override in a world-writable directory is refused"
+chmod 755 "$T/ov"; DISTRO_CONF_OVERRIDE="$T/override.conf"
 
 run_hooks no-such-stage >/dev/null 2>&1 && ok "a stage without a directory is fine" || bad "missing stage dir failed"
 run_hooks "../etc" >/dev/null 2>&1 && bad "a stage with a path was accepted" || ok "a stage name cannot be a path"

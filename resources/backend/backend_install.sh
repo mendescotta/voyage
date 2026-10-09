@@ -28,6 +28,7 @@ DISTRO_CONF_DEFAULT="$BACKEND_DIR/distro.conf"
 # disk this live system booted from. Runs before anything is formatted or mounted.
 check_not_live_medium() {
     local dev bl
+    LIVE_DISKS="$(live_medium_disks)"
     while read -r dev; do
         [ -n "$dev" ] || continue
         refuse_live_medium "$dev" || die "$dev is on the live installation medium"
@@ -541,9 +542,11 @@ set_default_shell() {
     fi
     grep -qxF "$shell" "$TARGETDIR/etc/shells" 2>/dev/null || \
         echo "$shell" >> "$TARGETDIR/etc/shells"
-    chroot "$TARGETDIR" usermod -s "$shell" root
+    chroot "$TARGETDIR" usermod -s "$shell" root || log_ui "Warning: could not set $shell for root"
     USERLOGIN="$(get_option USERLOGIN)"
-    [ -n "$USERLOGIN" ] && chroot "$TARGETDIR" usermod -s "$shell" "$USERLOGIN"
+    if [ -n "$USERLOGIN" ]; then
+        chroot "$TARGETDIR" usermod -s "$shell" "$USERLOGIN" || log_ui "Warning: could not set $shell for $USERLOGIN"
+    fi
 }
 
 disable_service() {

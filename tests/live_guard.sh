@@ -55,6 +55,21 @@ msg="$(refuse_live_medium /dev/sda 2>&1 >/dev/null)"; rc=$?
 [ "$rc" -eq 0 ] && echo "ok   an unresolvable live mount does not block (nothing to compare with)" || { echo "FAIL unresolvable mount blocked"; fails=$((fails + 1)); }
 case "$msg" in *"cannot"*"/run/initramfs/live"*|*"/run/initramfs/live"*"cannot"*) echo "ok   but it warns that the guard is blind" ;; *) echo "FAIL no warning for an unresolvable live mount: '$msg'"; fails=$((fails + 1)) ;; esac
 
+# a device the guard cannot resolve is refused while a live medium is known (fail closed)
+LIVE_SRC=/dev/sda1
+refuses "an unresolvable device while the live disk is known" /dev/does-not-exist
+
+# the live disks can be resolved once and reused: no repeated work, no repeated warnings
+LIVE_SRC=/dev/loop0
+LIVE_DISKS=""
+n=$( { refuse_live_medium /dev/sda; refuse_live_medium /dev/nvme0n1; refuse_live_medium /dev/sda1; } 2>&1 >/dev/null | grep -c "cannot be determined")
+if [ "$n" = "0" ]; then echo "ok   with a precomputed (empty) list the blind-guard warning is not repeated"; else echo "FAIL the warning was repeated $n times"; fails=$((fails + 1)); fi
+unset LIVE_DISKS
+LIVE_SRC=/dev/sda1; LIVE_DISKS="/dev/nvme0n1"
+refuses "a precomputed list is what is compared against" /dev/nvme0n1
+allows  "and other disks pass" /dev/sda
+unset LIVE_DISKS
+
 LIVE_SRC=""
 allows  "no live mount (installing from an installed system)" /dev/sda
 allows  "no live mount: any partition" /dev/sda1

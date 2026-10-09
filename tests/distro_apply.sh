@@ -54,6 +54,21 @@ printf 'default-shell none\n' > "$T/distro.conf"; CALLS=""
 set_default_shell
 check "none leaves the live image's shell" "$CALLS" ""
 
+# ---- a failing usermod is reported, not swallowed
+DISTRO_CONF_DEFAULT="$HERE/resources/backend/distro.conf"; INSTALLED=" fish-shell "; LOGS=""
+chroot() { shift; case "$1" in xbps-query) return 0 ;; usermod) return 1 ;; esac; }
+set_default_shell
+check "usermod failures are logged for root and the user" "$(printf '%s' "$LOGS" | grep -o 'could not set' | wc -l)" "2"
+chroot() {
+	shift
+	case "$1" in
+		xbps-query) case "$INSTALLED" in *" $2 "*) return 0 ;; *) return 1 ;; esac ;;
+		xbps-install) CALLS="$CALLS|$*"; [ "${OFFLINE:-}" = 1 ] && return 1; return 0 ;;
+		usermod) CALLS="$CALLS|$*" ;;
+	esac
+}
+LOGS=""; DISTRO_CONF_DEFAULT="$T/distro.conf"; INSTALLED=" "
+
 # ---- a shell that is not in the new system must never become a login shell
 printf 'default-shell /usr/bin/zsh zsh\n' > "$T/distro.conf"; CALLS=""; LOGS=""; INSTALLED=" zsh "
 set_default_shell

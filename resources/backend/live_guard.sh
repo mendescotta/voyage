@@ -27,14 +27,22 @@ live_medium_disks() {
 
 # refuse_live_medium <device>: fails (with the reason on stderr) when <device> is, or sits on, the live disk
 refuse_live_medium() {
-    local dev="$1" live disk
-    live="$(live_medium_disks)"
+    local dev="$1" live disk found=0
+    # callers that check several devices resolve the live disks once and set LIVE_DISKS (no repeated work or
+    # warnings); a plain call resolves them itself
+    if [ -n "${LIVE_DISKS+set}" ]; then live="$LIVE_DISKS"; else live="$(live_medium_disks)"; fi
     [ -n "$live" ] || return 0
     for disk in $(lsblk -nrso NAME,TYPE "$dev" 2>/dev/null | awk '$2 == "disk" { print "/dev/" $1 }'); do
+        found=1
         if printf '%s\n' "$live" | grep -qxF -- "$disk"; then
             echo "Refusing to use $dev: it is on $disk, the medium this system booted from." >&2
             return 1
         fi
     done
+    if [ "$found" -eq 0 ]; then
+        # a live medium is known but this device cannot be placed on a disk: do not guess
+        echo "Refusing to use $dev: it cannot be traced to a disk, so it cannot be shown to be off the live medium." >&2
+        return 1
+    fi
     return 0
 }
