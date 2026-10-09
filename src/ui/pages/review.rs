@@ -67,6 +67,21 @@ pub fn review_rows(config: &InstallConfig) -> Vec<(String, String)> {
     ]
 }
 
+/// The setup page where a Review row's choice is made (None when it cannot be changed here).
+pub fn edit_page(label: &str) -> Option<usize> {
+    use crate::ui::nav::{DISKS, MIRRORS, USERS, WELCOME};
+    match label {
+        "Language" | "Timezone" | "Keyboard layout" => Some(WELCOME),
+        "Computer name" | "User account" | "User password" | "Root password" | "Auto login" => {
+            Some(USERS)
+        }
+        "Mirror" | "System updates" | "Nonfree repository" | "Hardware drivers"
+        | "Initramfs drivers" => Some(MIRRORS),
+        "Disk layout" | "Swap" | "Filesystem" | "Btrfs layout" | "Bootloader" => Some(DISKS),
+        _ => None,
+    }
+}
+
 fn display_manager_label(display_manager: &str) -> String {
     if display_manager.is_empty() {
         "None".to_string()
@@ -139,11 +154,14 @@ fn btrfs_summary(config: &InstallConfig) -> String {
     }
 }
 
+type EditHandler = std::rc::Rc<std::cell::RefCell<Option<Box<dyn Fn(usize)>>>>;
+
 pub struct ReviewPage {
     pub widget: gtk::Box,
     group: Group,
     rows: std::cell::RefCell<Vec<ActionRow>>,
     pub install_button: gtk::Button,
+    edit_handler: EditHandler,
 }
 
 impl ReviewPage {
@@ -179,7 +197,13 @@ impl ReviewPage {
             group,
             rows: std::cell::RefCell::new(Vec::new()),
             install_button,
+            edit_handler: EditHandler::default(),
         }
+    }
+
+    /// Called with the page to open when the user presses Edit on a row.
+    pub fn set_edit_handler(&self, handler: impl Fn(usize) + 'static) {
+        *self.edit_handler.borrow_mut() = Some(Box::new(handler));
     }
 
     pub fn set_config(&self, config: &InstallConfig) {
@@ -190,6 +214,21 @@ impl ReviewPage {
         for (label, value) in review_rows(config) {
             let row = ActionRow::new(&label);
             row.set_subtitle(&value);
+            if let Some(page) = edit_page(&label) {
+                let button = gtk::Button::builder()
+                    .label("Edit")
+                    .valign(gtk::Align::Center)
+                    .css_classes(["flat"])
+                    .tooltip_text(format!("Change \"{label}\""))
+                    .build();
+                let handler = self.edit_handler.clone();
+                button.connect_clicked(move |_| {
+                    if let Some(f) = handler.borrow().as_ref() {
+                        f(page);
+                    }
+                });
+                row.add_suffix(button.upcast_ref());
+            }
             self.group.add(&row);
             rows.push(row);
         }
@@ -285,5 +324,85 @@ mod tests {
         let rows = review_rows(&config);
         let btrfs = rows.iter().find(|(k, _)| k == "Btrfs layout").unwrap();
         assert_eq!(btrfs.1, "N/A");
+    }
+
+    #[test]
+    fn every_editable_row_points_at_a_setup_page() {
+        use crate::ui::nav::{DISKS, MIRRORS, USERS, WELCOME};
+        let rows = review_rows(&sample_config());
+        let mut read_only = Vec::new();
+        for (label, _) in &rows {
+            match edit_page(label) {
+                Some(page) => assert!(
+                    [WELCOME, MIRRORS, USERS, DISKS].contains(&page),
+                    "{label} -> {page}"
+                ),
+                None => read_only.push(label.as_str()),
+            }
+        }
+        // the only choice the user cannot change here is the one detected from the live system
+        assert_eq!(read_only, vec!["Display manager"]);
+    }
+
+    #[test]
+    fn rows_belong_to_the_page_where_the_choice_is_made() {
+        use crate::ui::nav::{DISKS, MIRRORS, USERS, WELCOME};
+        assert_eq!(edit_page("Timezone"), Some(WELCOME));
+        assert_eq!(edit_page("User password"), Some(USERS));
+        assert_eq!(edit_page("Nonfree repository"), Some(MIRRORS));
+        assert_eq!(edit_page("Bootloader"), Some(DISKS));
+        assert_eq!(edit_page("Something new"), None);
+    }
+
+    /// All buttons below `widget`, depth first.
+    fn buttons(widget: &gtk::Widget, out: &mut Vec<gtk::Button>) {
+        if let Some(b) = widget.downcast_ref::<gtk::Button>() {
+            out.push(b.clone());
+        }
+        let mut child = widget.first_child();
+        while let Some(c) = child {
+            buttons(&c, out);
+            child = c.next_sibling();
+        }
+    }
+
+    #[test]
+    fn edit_buttons_open_the_page_that_owns_the_choice() {
+        if gtk::init().is_err() {
+            eprintln!("no display: skipping the GTK part of the Review test");
+            return;
+        }
+        use crate::ui::nav::{DISKS, MIRRORS, USERS, WELCOME};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let page = ReviewPage::new();
+        let opened = Rc::new(RefCell::new(Vec::new()));
+        {
+            let opened = opened.clone();
+            page.set_edit_handler(move |p| opened.borrow_mut().push(p));
+        }
+        page.set_config(&sample_config());
+
+        let mut all = Vec::new();
+        buttons(page.widget.upcast_ref(), &mut all);
+        let edit: Vec<_> = all
+            .iter()
+            .filter(|b| b.label().as_deref() == Some("Edit"))
+            .collect();
+        let editable = review_rows(&sample_config())
+            .iter()
+            .filter(|(l, _)| edit_page(l).is_some())
+            .count();
+        assert_eq!(edit.len(), editable, "one Edit button per editable row");
+
+        for b in &edit {
+            b.emit_clicked();
+        }
+        let opened = opened.borrow();
+        for page in [WELCOME, USERS, MIRRORS, DISKS] {
+            assert!(opened.contains(&page), "page {page} was never opened");
+        }
+        assert!(opened.iter().all(|p| *p <= DISKS));
     }
 }

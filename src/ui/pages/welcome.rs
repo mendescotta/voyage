@@ -53,6 +53,19 @@ impl WelcomePage {
             .build();
         widget.append(&heading);
 
+        let check_group = Group::new("System check");
+        for check in &sys_data.checks {
+            let row = ActionRow::new(&check.label);
+            row.set_subtitle(&check.detail);
+            row.add_suffix(status_icon(check.level).upcast_ref());
+            check_group.add(&row);
+        }
+        widget.append(check_group.as_ref());
+        if let Some(reason) = requirements::blocking_summary(&sys_data.checks) {
+            let banner = Banner::new(&format!("The installation cannot start:\n{reason}"));
+            widget.append(banner.as_ref());
+        }
+
         let mut locales_list = system_detect::detect_locales();
         if locales_list.is_empty() {
             locales_list.push("en_US.UTF-8".to_string());
@@ -111,19 +124,6 @@ impl WelcomePage {
         keymap_row.set_selected(default_keymap_idx as u32);
 
         let has_net = sys_data.net;
-        let check_group = Group::new("System check");
-        for check in &sys_data.checks {
-            let row = ActionRow::new(&check.label);
-            row.set_subtitle(&check.detail);
-            row.add_suffix(status_icon(check.level).upcast_ref());
-            check_group.add(&row);
-        }
-        widget.append(check_group.as_ref());
-        if let Some(reason) = requirements::blocking_summary(&sys_data.checks) {
-            let banner = Banner::new(&format!("The installation cannot start:\n{reason}"));
-            widget.append(banner.as_ref());
-        }
-
         let inner = Rc::new(RefCell::new(Inner {
             locale_codes: locales_list,
             regions,

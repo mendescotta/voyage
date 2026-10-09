@@ -14,15 +14,10 @@ pub fn tabs_visible(current: usize) -> bool {
     current < INSTALLATION
 }
 
-/// A tab can be picked once its page has been reached; later ones stay locked so
-/// validation on the pages in between cannot be skipped.
-pub fn tab_enabled(tab: usize, current: usize, furthest: usize) -> bool {
-    tabs_visible(current) && tab <= furthest
-}
-
-/// Track the furthest setup page reached (Review is the last tab).
-pub fn advance_furthest(furthest: usize, current: usize) -> usize {
-    furthest.max(current.min(REVIEW))
+/// Any setup tab can be picked at any time. Nothing is skipped by jumping around: Review and the install
+/// button validate every page again before they let anything happen.
+pub fn tab_enabled(_tab: usize, current: usize) -> bool {
+    tabs_visible(current)
 }
 
 #[cfg(test)]
@@ -30,11 +25,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tab_locked_beyond_furthest() {
-        assert!(tab_enabled(WELCOME, WELCOME, WELCOME));
-        assert!(!tab_enabled(USERS, WELCOME, WELCOME));
-        assert!(tab_enabled(USERS, WELCOME, USERS));
-        assert!(tab_enabled(WELCOME, USERS, USERS));
+    fn every_setup_tab_is_available_from_the_start() {
+        for tab in 0..TAB_COUNT {
+            assert!(tab_enabled(tab, WELCOME), "tab {tab} from Welcome");
+            assert!(tab_enabled(tab, DISKS), "tab {tab} from Disks");
+            assert!(tab_enabled(tab, REVIEW), "tab {tab} from Review");
+        }
     }
 
     #[test]
@@ -42,13 +38,7 @@ mod tests {
         assert!(!tabs_visible(INSTALLATION));
         assert!(!tabs_visible(COMPLETION));
         assert!(tabs_visible(REVIEW));
-        assert!(!tab_enabled(WELCOME, INSTALLATION, REVIEW));
-    }
-
-    #[test]
-    fn furthest_only_moves_forward_and_stops_at_review() {
-        assert_eq!(advance_furthest(WELCOME, USERS), USERS);
-        assert_eq!(advance_furthest(DISKS, WELCOME), DISKS);
-        assert_eq!(advance_furthest(REVIEW, INSTALLATION), REVIEW);
+        assert!(!tab_enabled(WELCOME, INSTALLATION));
+        assert!(!tab_enabled(REVIEW, COMPLETION));
     }
 }

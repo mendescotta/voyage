@@ -13,6 +13,9 @@ backend. Flagship project. Public repo. Design notes: @DEVNOTES.md (local, gitig
   `backend::config_schema` and `install_runner` stay GTK-free and tested.
 - Dev env vars: `VOYAGE_BACKEND_DIR` (backend scripts), `VOYAGE_SCREENSHOTS` (screenshot mode in
   `ui/window.rs`), `--demo` (no disk access).
+- The backend reports progress as `>>> PROGRESS n` lines (percent of the root copy) next to the
+  `>>> TOKEN` milestones; the runner maps them into the copy slice of the bar (`COPY_RANGE`).
+- The live medium is hidden in the UI (`Disk::live_medium`) and refused by `live_guard.sh`; keep both.
 - Destructive steps need two confirmations (auto-partition warning, review page).
 - Any change to partitioning, bootloader or install scripts is only
   "done" after a VM install test; say so if it was not run.

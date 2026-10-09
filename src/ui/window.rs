@@ -18,6 +18,9 @@ use crate::ui::{pages, SysData};
 struct State {
     sys_data: SysData,
     demo: bool,
+    /// Set while the user is editing a choice reached through Review's Edit button: Next then goes
+    /// straight back to Review instead of on to the following page.
+    from_review: bool,
     welcome: WelcomePage,
     mirrors: MirrorsPage,
     users: UsersPage,
@@ -31,7 +34,6 @@ struct State {
     back_button: gtk::Button,
     next_button: gtk::Button,
     current_index: usize,
-    furthest: usize,
     window: Window,
 }
 
@@ -174,9 +176,23 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
         back_button,
         next_button,
         current_index: 0,
-        furthest: 0,
+        from_review: false,
         window: window.clone(),
     }));
+
+    {
+        let weak = Rc::downgrade(&state);
+        state.borrow().review.set_edit_handler(move |page| {
+            if let Some(state) = weak.upgrade() {
+                {
+                    let mut s = state.borrow_mut();
+                    s.from_review = true;
+                    s.current_index = page;
+                }
+                update_nav(&state);
+            }
+        });
+    }
 
     update_nav(&state);
 
@@ -186,8 +202,11 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
         tab.connect_clicked(move |_| {
             let allowed = {
                 let s = state.borrow();
-                s.current_index != index && tab_enabled(index, s.current_index, s.furthest)
+                s.current_index != index && tab_enabled(index, s.current_index)
             };
+            if allowed {
+                state.borrow_mut().from_review = false;
+            }
             if !allowed {
                 update_nav(&state);
             } else if index == REVIEW {
@@ -204,6 +223,7 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
         let state = state.clone();
         back_button.connect_clicked(move |_| {
             let mut s = state.borrow_mut();
+            s.from_review = false;
             if s.current_index > 0 {
                 s.current_index -= 1;
             }
@@ -289,7 +309,6 @@ fn screenshot_tour(state: &Rc<RefCell<State>>, dir: std::path::PathBuf) {
             return gtk::glib::ControlFlow::Break;
         }
         state.borrow_mut().current_index = n;
-        state.borrow_mut().furthest = REVIEW;
         update_nav(&state);
         step.set(n + 1);
         gtk::glib::ControlFlow::Continue
@@ -297,10 +316,6 @@ fn screenshot_tour(state: &Rc<RefCell<State>>, dir: std::path::PathBuf) {
 }
 
 fn update_nav(state: &Rc<RefCell<State>>) {
-    {
-        let mut s = state.borrow_mut();
-        s.furthest = advance_furthest(s.furthest, s.current_index);
-    }
     let s = state.borrow();
     let page = s.current_index;
     let visible_title = match page {
@@ -322,12 +337,17 @@ fn update_nav(state: &Rc<RefCell<State>>) {
     let is_last = page == PAGE_COUNT - 1;
     s.next_button
         .set_visible(!is_install_step && !is_review_step);
-    s.next_button
-        .set_label(if is_last { "Restart" } else { "Next" });
+    s.next_button.set_label(if is_last {
+        "Restart"
+    } else if s.from_review && page < REVIEW {
+        "Back to review"
+    } else {
+        "Next"
+    });
 
     s.tab_bar.set_visible(tabs_visible(page));
     for (i, tab) in s.tabs.iter().enumerate() {
-        tab.set_sensitive(tab_enabled(i, page, s.furthest));
+        tab.set_sensitive(tab_enabled(i, page));
         if tab.is_active() != (i == page) {
             tab.set_active(i == page);
         }
@@ -336,6 +356,12 @@ fn update_nav(state: &Rc<RefCell<State>>) {
 
 fn on_next(state: &Rc<RefCell<State>>) {
     let current = state.borrow().current_index;
+
+    if state.borrow().from_review && current < REVIEW {
+        // validates every page and rebuilds the summary, then shows it
+        go_review(state);
+        return;
+    }
 
     if current == DISKS {
         go_review(state);
@@ -376,7 +402,9 @@ fn go_review(state: &Rc<RefCell<State>>) {
     match collect_all(state) {
         Ok(config) => {
             state.borrow().review.set_config(&config);
-            state.borrow_mut().current_index = REVIEW;
+            let mut s = state.borrow_mut();
+            s.current_index = REVIEW;
+            s.from_review = false;
         }
         Err(errors) => show_errors(state, &errors),
     }
