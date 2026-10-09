@@ -602,7 +602,7 @@ install_distro_packages() {
 
 # Void's guest dkms.conf also builds vboxvideo, which does not compile against Linux 6.18 (drm_fb_helper_alloc_info
 # is gone), so the whole dkms build fails and no module is installed. vboxguest and vboxsf are what guest control,
-# shared folders and the clipboard need. Only runs when a kernel has no installed module.
+# shared folders and the clipboard need (the kernel ships its own vboxvideo). Only runs when a kernel has no installed module.
 # Drop when: virtualbox-ose-guest-dkms builds on the current kernel without this (fixed or vboxvideo dropped upstream).
 repair_vbox_dkms() {
     local conf kdir kver n broken=""
@@ -617,6 +617,8 @@ repair_vbox_dkms() {
         [ -f "$conf" ] || continue
         n=$(sed -n 's/^BUILT_MODULE_NAME\[\([0-9]*\)\]="vboxvideo".*/\1/p' "$conf")
         [ -n "$n" ] && sed -i "/^[A-Z_]*\[$n\]=/d" "$conf"
+        # dkms builds through the top Makefile, which lists every module: dkms.conf alone is not enough.
+        sed -i '/^obj-m/s|vboxvideo/||' "${conf%/dkms.conf}/Makefile" 2>/dev/null
     done
     for kver in $broken; do
         chroot "$TARGETDIR" dkms autoinstall -k "$kver" >/dev/null 2>&1 ||

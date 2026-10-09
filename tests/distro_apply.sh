@@ -151,6 +151,7 @@ BUILT_MODULE_LOCATION[2]="vboxvideo"
 DEST_MODULE_LOCATION[2]="/updates"
 AUTOINSTALL="yes"
 EOC
+	printf 'obj-m = vboxguest/ vboxsf/ vboxvideo/\n' > "${CONF%/dkms.conf}/Makefile"
 }
 fresh_conf; reset; DKMS_STATUS="virtualbox-ose-guest/7.2.20, 6.18.55_1, x86_64: installed"; repair_vbox_dkms
 check "modules already installed: nothing is touched" "$CALLS|$(grep -c vboxvideo "$CONF")" "|2"
@@ -159,6 +160,7 @@ fresh_conf; reset; DKMS_STATUS=""; repair_vbox_dkms
 check "no module installed: vboxvideo is dropped from dkms.conf" "$(grep -c vboxvideo "$CONF")" "0"
 check "and the other two modules stay" "$(grep -c 'vboxguest\|vboxsf' "$CONF")" "2"
 check "and the build is retried for that kernel" "$CALLS" "|dkms autoinstall -k 6.18.55_1"
+check "and the Makefile no longer builds it (dkms.conf alone would not stop the build)" "$(cat "${CONF%/dkms.conf}/Makefile")" "obj-m = vboxguest/ vboxsf/ "
 check "and the autoinstall line survives" "$(grep -c AUTOINSTALL "$CONF")" "1"
 
 fresh_conf; reset; DKMS_STATUS=""; DKMS_FAIL=1; repair_vbox_dkms; DKMS_FAIL=0
