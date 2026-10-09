@@ -41,10 +41,17 @@ impl WelcomePage {
             .build();
 
         let logo = gtk::Image::builder()
-            .icon_name("org.voidlinux.voyage")
             .pixel_size(80)
             .halign(gtk::Align::Center)
             .build();
+        // installed: from the icon theme; run from the source tree: straight from the file
+        let in_theme = gtk::gdk::Display::default()
+            .map(|d| gtk::IconTheme::for_display(&d).has_icon("org.voidlinux.voyage"))
+            .unwrap_or(false);
+        match crate::backend::paths::icon_file() {
+            Some(file) if !in_theme => logo.set_from_file(Some(file)),
+            _ => logo.set_icon_name(Some("org.voidlinux.voyage")),
+        }
         widget.append(&logo);
 
         let heading = gtk::Label::builder()

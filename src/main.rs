@@ -41,7 +41,7 @@ fn main() -> glib::ExitCode {
     let app = ui::widgets::new_app("org.voidlinux.Voyage");
 
     app.connect_activate(move |app| {
-        gtk::Window::set_default_icon_name("voyage");
+        gtk::Window::set_default_icon_name("org.voidlinux.voyage");
         load_theme();
         let sys_data = detect_system_data();
         let window = ui::window::build(app, sys_data, demo);
