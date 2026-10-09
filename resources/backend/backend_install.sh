@@ -613,13 +613,10 @@ install_vbox_guest() {
             log_ui "The VirtualBox guest additions need the internet; install$missing after the first boot."
             return 0
         fi
-        # One package per call, in distro.conf order: the headers must be configured before dkms builds.
-        for pkg in $missing; do
-            chroot "$TARGETDIR" xbps-install -Sy "$pkg" || {
-                log_ui "Could not install $pkg; the VirtualBox guest additions were skipped."
-                return 0
-            }
-        done
+        chroot "$TARGETDIR" xbps-install -Sy $missing || {
+            log_ui "Could not install$missing; the VirtualBox guest additions were skipped."
+            return 0
+        }
     fi
     for svc in $(distro_values vbox-guest-enable); do
         enable_service_checked "$svc"

@@ -118,7 +118,7 @@ check "not requested: nothing happens" "$CALLS" ""
 check "and no service is started" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
 
 reset; OPTS_VBOX=1; install_vbox_guest
-check "requested, online: the guest package is installed" "$CALLS" "|xbps-install -Sy linux-headers|xbps-install -Sy virtualbox-ose-guest-dkms|xbps-install -Sy virtualbox-ose-guest"
+check "requested, online: the guest package is installed" "$CALLS" "|xbps-install -Sy virtualbox-ose-guest-dkms virtualbox-ose-guest"
 check "and vboxservice is enabled" "$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "/etc/dinit.d/vboxservice"
 
 rm -f "$TARGETDIR/etc/dinit.d/boot.d/vboxservice"
@@ -127,7 +127,7 @@ check "requested, offline, not on the image: no install attempt" "$CALLS" ""
 check "and the user is told" "$(printf '%s' "$LOGS" | grep -c 'internet')" "1"
 check "and nothing is enabled" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
 
-reset; OPTS_VBOX=1; OPTS_UPDATE=0; INSTALLED=" linux-headers virtualbox-ose-guest-dkms virtualbox-ose-guest "; install_vbox_guest
+reset; OPTS_VBOX=1; OPTS_UPDATE=0; INSTALLED=" virtualbox-ose-guest-dkms virtualbox-ose-guest "; install_vbox_guest
 check "offline but already on the image: no install, service enabled" "$CALLS|$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "|/etc/dinit.d/vboxservice"
 
 rm -f "$TARGETDIR/etc/dinit.d/boot.d/vboxservice"
