@@ -9,7 +9,7 @@ use gtk::prelude::*;
 use crate::backend::config_schema::{DiskChoices, RawPartitions, SwapStrategy};
 use crate::backend::paths::auto_partition_script;
 use crate::backend::system_detect::{self, check_disk_health, Disk, HealthStatus, PartitionDetail};
-use crate::ui::widgets::{self, ActionRow, ComboRow, Group, SwitchRow};
+use crate::ui::widgets::{self, ActionRow, Banner, ComboRow, Group, SwitchRow};
 use crate::ui::SysData;
 
 pub const TITLE: &str = "Disks";
@@ -53,7 +53,13 @@ impl DisksPage {
         let is_efi = sys_data.efi;
 
         let auto_group = Group::new("Automatic partitioning");
-        let disks = system_detect::detect_disks();
+        let all_disks = system_detect::detect_disks();
+        let hidden_live: Vec<String> = all_disks
+            .iter()
+            .filter(|d| d.live_medium)
+            .map(|d| d.name.clone())
+            .collect();
+        let disks = system_detect::install_targets(all_disks);
         let disk_labels: Vec<String> = if disks.is_empty() {
             vec!["No disk found".to_string()]
         } else {
@@ -82,6 +88,13 @@ impl DisksPage {
         auto_group.add(&layout_row);
         auto_group.add(&shred_row);
         auto_group.add(&auto_row);
+        if !hidden_live.is_empty() {
+            let note = Banner::new(&format!(
+                "{} is the installation medium and is not offered as a target.",
+                hidden_live.join(", ")
+            ));
+            widget.append(note.as_ref());
+        }
         widget.append(auto_group.as_ref());
 
         let manual_group = Group::new("Manual assignment");

@@ -7,7 +7,7 @@ use gtk::gdk;
 use gtk::glib;
 use gtk::prelude::*;
 
-use backend::system_detect;
+use backend::{requirements, system_detect};
 use ui::SysData;
 
 fn load_theme() {
@@ -23,10 +23,13 @@ fn load_theme() {
 }
 
 fn detect_system_data() -> SysData {
+    let net = system_detect::has_internet(std::time::Duration::from_secs(3));
+    let checks = requirements::evaluate(&requirements::Facts::detect(net));
     SysData {
         efi: system_detect::detect_efi(),
-        net: system_detect::has_internet(std::time::Duration::from_secs(3)),
+        net,
         display_manager: system_detect::detect_display_manager(),
+        checks,
     }
 }
 

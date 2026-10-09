@@ -19,7 +19,16 @@ pub struct Disk {
     pub model: String,
     pub size: String,
     pub children: Vec<DiskPartition>,
+    /// The disk the live system booted from. Never offered as an install target.
+    pub live_medium: bool,
 }
+
+/// Where a live system mounts the medium it booted from (dracut dmsquash-live, older void-mklive).
+const LIVE_MOUNTS: &[&str] = &[
+    "/run/initramfs/live",
+    "/run/live/medium",
+    "/run/initramfs/medium",
+];
 
 #[derive(Debug, Clone)]
 pub struct PartitionDetail {
@@ -191,15 +200,40 @@ mod lsblk_json {
     }
 }
 
+/// Every mount point of a block device and of everything below it (partitions, crypt and LVM layers).
+fn collect_mounts(device: &lsblk_json::Value) -> Vec<String> {
+    let mut mounts = Vec::new();
+    if let Some(list) = device.get("mountpoints").and_then(|v| v.as_array()) {
+        mounts.extend(list.iter().filter_map(|m| m.as_str()).map(str::to_string));
+    }
+    if let Some(single) = device.get("mountpoint").and_then(|v| v.as_str()) {
+        mounts.push(single.to_string());
+    }
+    if let Some(children) = device.get("children").and_then(|v| v.as_array()) {
+        for child in children {
+            mounts.extend(collect_mounts(child));
+        }
+    }
+    mounts
+}
+
+/// The disks that may be installed to: everything except the medium the live system runs from.
+pub fn install_targets(disks: Vec<Disk>) -> Vec<Disk> {
+    disks.into_iter().filter(|d| !d.live_medium).collect()
+}
+
 pub fn detect_disks() -> Vec<Disk> {
     let output = Command::new("lsblk")
-        .args(["-J", "-o", "NAME,SIZE,TYPE,MODEL,FSTYPE"])
+        .args(["-J", "-o", "NAME,SIZE,TYPE,MODEL,FSTYPE,MOUNTPOINTS"])
         .output();
     let Ok(output) = output else {
         return Vec::new();
     };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let Some(root) = lsblk_json::parse(&text) else {
+    parse_disks(&String::from_utf8_lossy(&output.stdout))
+}
+
+pub fn parse_disks(text: &str) -> Vec<Disk> {
+    let Some(root) = lsblk_json::parse(text) else {
         return Vec::new();
     };
     let Some(devices) = root.get("blockdevices").and_then(|v| v.as_array()) else {
@@ -254,11 +288,15 @@ pub fn detect_disks() -> Vec<Disk> {
             })
             .unwrap_or_default();
 
+        let live_medium = collect_mounts(device)
+            .iter()
+            .any(|m| LIVE_MOUNTS.contains(&m.as_str()));
         disks.push(Disk {
             name: format!("/dev/{name}"),
             model,
             size,
             children,
+            live_medium,
         });
     }
     disks
@@ -289,7 +327,7 @@ pub fn parse_size_to_bytes(size_str: &str) -> u64 {
 
 pub fn get_partitions_detailed() -> Vec<PartitionDetail> {
     let mut partitions = Vec::new();
-    for disk in detect_disks() {
+    for disk in install_targets(detect_disks()) {
         for part in disk.children {
             partitions.push(PartitionDetail {
                 name: part.name.clone(),
@@ -604,5 +642,50 @@ mod tests {
         );
         assert_eq!(status, HealthStatus::Ok);
         assert_eq!(note, "SMART health check passed.");
+    }
+
+    const LIVE_USB: &str = r#"{"blockdevices":[
+      {"name":"sda","size":"14.9G","type":"disk","model":"USB DISK","fstype":null,"rm":true,"ro":false,"mountpoints":[null],
+       "children":[
+         {"name":"sda1","size":"2G","type":"part","fstype":"iso9660","mountpoints":["/run/initramfs/live"]},
+         {"name":"sda2","size":"4M","type":"part","fstype":"vfat","mountpoints":[null]}]},
+      {"name":"nvme0n1","size":"476.9G","type":"disk","model":"WDC","fstype":null,"rm":false,"ro":false,"mountpoints":[null],
+       "children":[{"name":"nvme0n1p1","size":"1G","type":"part","fstype":"vfat","mountpoints":[null]}]}]}"#;
+
+    #[test]
+    fn the_disk_holding_the_live_mount_is_marked() {
+        let disks = parse_disks(LIVE_USB);
+        assert_eq!(disks.len(), 2);
+        assert!(disks[0].live_medium, "sda carries /run/initramfs/live");
+        assert!(!disks[1].live_medium);
+    }
+
+    #[test]
+    fn install_targets_leave_out_the_live_medium() {
+        let targets = install_targets(parse_disks(LIVE_USB));
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].name, "/dev/nvme0n1");
+    }
+
+    #[test]
+    fn a_live_mount_below_a_nested_device_still_counts() {
+        let json = r#"{"blockdevices":[{"name":"sdb","size":"8G","type":"disk","model":"X","fstype":null,"mountpoints":[null],
+          "children":[{"name":"sdb1","size":"8G","type":"part","fstype":"crypto_LUKS","mountpoints":[null],
+            "children":[{"name":"live","size":"8G","type":"crypt","fstype":"squashfs","mountpoints":["/run/live/medium"]}]}]}]}"#;
+        assert!(parse_disks(json)[0].live_medium);
+    }
+
+    #[test]
+    fn an_ordinary_mount_does_not_mark_the_disk() {
+        let json = r#"{"blockdevices":[{"name":"sda","size":"100G","type":"disk","model":"X","fstype":null,"mountpoints":[null],
+          "children":[{"name":"sda1","size":"100G","type":"part","fstype":"ext4","mountpoints":["/run/media/gui/data","/"]}]}]}"#;
+        assert!(!parse_disks(json)[0].live_medium);
+    }
+
+    #[test]
+    fn the_older_single_mountpoint_column_is_understood_too() {
+        let json = r#"{"blockdevices":[{"name":"sdc","size":"8G","type":"disk","model":"X","fstype":null,"mountpoint":null,
+          "children":[{"name":"sdc1","size":"8G","type":"part","fstype":"iso9660","mountpoint":"/run/initramfs/live"}]}]}"#;
+        assert!(parse_disks(json)[0].live_medium);
     }
 }

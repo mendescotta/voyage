@@ -28,11 +28,26 @@ const PROGRESS_MILESTONES: &[(&str, u8)] = &[
     ("DONE", 100),
 ];
 
+/// The part of the bar the root copy covers.
+const COPY_RANGE: (u8, u8) = (30, 49);
+
 const PROGRESS_RAMPS: &[(&str, (u8, u8))] = &[
-    ("COPY", (30, 49)),
+    ("COPY", COPY_RANGE),
     ("UPDATE_DOWNLOAD", (50, 69)),
     ("UPDATE_INSTALL", (60, 69)),
 ];
+
+/// `PROGRESS 42` from the backend: how much of the root copy is done, in percent.
+fn parse_progress_token(msg: &str) -> Option<u8> {
+    let pct = msg.strip_prefix("PROGRESS ")?.trim().parse::<u32>().ok()?;
+    Some(pct.min(100) as u8)
+}
+
+/// Where a copy percentage lands on the whole bar.
+fn copy_progress_value(pct: u8) -> u8 {
+    let (start, end) = COPY_RANGE;
+    start + (u32::from(pct.min(100)) * u32::from(end - start) / 100) as u8
+}
 
 const DEMO_STEPS: &[(&str, u8, u64)] = &[
     ("INIT", 5, 400),
@@ -223,6 +238,12 @@ impl InstallRunner {
             }
 
             let msg = clean_line.trim_start_matches(">>>").trim().to_string();
+            if let Some(pct) = parse_progress_token(&msg) {
+                // real progress replaces the timer-driven ramp, and is not a status change
+                stop_ramp(&mut ramp_stop, &mut ramp_handle);
+                on_event(InstallEvent::Progress(copy_progress_value(pct)));
+                continue;
+            }
             on_event(InstallEvent::Status(msg.clone()));
             on_event(InstallEvent::Log(format!("[INFO] {msg}")));
 
@@ -343,5 +364,37 @@ mod tests {
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         fs::remove_file(&path).ok();
         assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn progress_tokens_are_recognised() {
+        assert_eq!(parse_progress_token("PROGRESS 42"), Some(42));
+        assert_eq!(parse_progress_token("PROGRESS 0"), Some(0));
+        assert_eq!(parse_progress_token("PROGRESS 250"), Some(100));
+        assert_eq!(parse_progress_token("PROGRESS"), None);
+        assert_eq!(parse_progress_token("PROGRESS abc"), None);
+        assert_eq!(parse_progress_token("COPY"), None);
+        assert_eq!(parse_progress_token("INIT 5"), None);
+    }
+
+    #[test]
+    fn copy_progress_fills_the_copy_part_of_the_bar() {
+        let (start, end) = COPY_RANGE;
+        assert_eq!(copy_progress_value(0), start);
+        assert_eq!(copy_progress_value(100), end);
+        let mid = copy_progress_value(50);
+        assert!(start < mid && mid < end);
+        let mut last = 0;
+        for pct in 0..=100 {
+            let v = copy_progress_value(pct);
+            assert!(v >= last, "never goes backwards");
+            last = v;
+        }
+    }
+
+    #[test]
+    fn the_copy_range_is_the_one_the_ramp_uses() {
+        let ramp = PROGRESS_RAMPS.iter().find(|(t, _)| *t == "COPY").unwrap().1;
+        assert_eq!(ramp, COPY_RANGE);
     }
 }

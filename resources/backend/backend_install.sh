@@ -19,6 +19,22 @@ die() {
     exit 1
 }
 
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/live_guard.sh"
+
+# Every device the configuration would write to (partitions and the bootloader target) must be off the
+# disk this live system booted from. Runs before anything is formatted or mounted.
+check_not_live_medium() {
+    local dev bl
+    while read -r dev; do
+        [ -n "$dev" ] || continue
+        refuse_live_medium "$dev" || die "$dev is on the live installation medium"
+    done < <(grep -E '^MOUNTPOINT .*' "$CONF_FILE" | awk '{print $2}')
+    bl="$(get_option BOOTLOADER)"
+    if [ -n "$bl" ] && [ "$bl" != "none" ]; then
+        refuse_live_medium "$bl" || die "the bootloader target $bl is on the live installation medium"
+    fi
+}
+
 if [ -e /sys/firmware/efi/systab ]; then
     EFI_SYSTEM=1
     EFI_FW_BITS=$(cat /sys/firmware/efi/fw_platform_size)
@@ -260,11 +276,44 @@ reset_live_autologin() {
     fi
 }
 
+# Percent (0-99) of the root copy done: <tar records read> <total bytes>. tar counts 10240-byte records.
+# Prints nothing when the total is unknown. Capped below 100: tar's headers make the stream a little
+# larger than what du counts, and 100 is reported by the step that follows.
+copy_progress_pct() {
+    local records="$1" total="$2" pct
+    case "$records$total" in *[!0-9]*|"") return 0 ;; esac
+    [ "$records" != "" ] && [ "$total" != "" ] && [ "$total" -gt 0 ] || return 0
+    pct=$(( records * 10240 * 100 / total ))
+    [ "$pct" -gt 99 ] && pct=99
+    echo "$pct"
+}
+
+# stdin is tar's stderr. Checkpoint lines become `>>> PROGRESS n` on fd 3 (when n changes); anything
+# else tar says still goes to the log.
+copy_progress_reader() {
+    local total="$1" line pct last=-1
+    while IFS= read -r line; do
+        case "$line" in
+            *"@CKPT "*)
+                pct="$(copy_progress_pct "${line##*@CKPT }" "$total")"
+                if [ -n "$pct" ] && [ "$pct" != "$last" ]; then
+                    echo ">>> PROGRESS $pct" >&3
+                    last="$pct"
+                fi
+                ;;
+            *) printf '%s\n' "$line" >&2 ;;
+        esac
+    done
+}
+
 copy_rootfs() {
+    local total
     echo "Copying system files..."
+    # what tar is about to read, so the checkpoints can be shown as a percentage
+    total="$(du -sxb / 2>/dev/null | cut -f1)"
     tar --create --one-file-system --xattrs \
-        --checkpoint=2000 --checkpoint-action=echo="Copied %{r}T files..." \
-        -f - / | \
+        --checkpoint=500 --checkpoint-action=echo="@CKPT %u" \
+        -f - / 2> >(copy_progress_reader "$total") | \
         tar --extract --xattrs --xattrs-include='*' --preserve-permissions -f - -C "$TARGETDIR"
 
     if [ $? -ne 0 ]; then
@@ -833,6 +882,8 @@ fi
 
 log_ui "INIT"
 echo "Log started at $LOG"
+
+check_not_live_medium
 
 log_ui "CREATE_FS"
 create_filesystems

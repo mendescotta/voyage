@@ -7,8 +7,9 @@ use std::time::Duration;
 use gtk::glib;
 use gtk::prelude::*;
 
+use crate::backend::requirements::{self, Level};
 use crate::backend::{locales, system_detect};
-use crate::ui::widgets::{Banner, ComboRow, Group};
+use crate::ui::widgets::{ActionRow, Banner, ComboRow, Group};
 use crate::ui::SysData;
 
 pub const TITLE: &str = "Welcome";
@@ -110,13 +111,18 @@ impl WelcomePage {
         keymap_row.set_selected(default_keymap_idx as u32);
 
         let has_net = sys_data.net;
-        let status = if has_net {
-            "Internet connection detected. Installer in online mode."
-        } else {
-            "No internet connection detected. Installer in offline mode."
-        };
-        let banner = Banner::new(status);
-        widget.append(banner.as_ref());
+        let check_group = Group::new("System check");
+        for check in &sys_data.checks {
+            let row = ActionRow::new(&check.label);
+            row.set_subtitle(&check.detail);
+            row.add_suffix(status_icon(check.level).upcast_ref());
+            check_group.add(&row);
+        }
+        widget.append(check_group.as_ref());
+        if let Some(reason) = requirements::blocking_summary(&sys_data.checks) {
+            let banner = Banner::new(&format!("The installation cannot start:\n{reason}"));
+            widget.append(banner.as_ref());
+        }
 
         let inner = Rc::new(RefCell::new(Inner {
             locale_codes: locales_list,
@@ -177,6 +183,19 @@ impl WelcomePage {
         };
         (fields, Vec::new())
     }
+}
+
+fn status_icon(level: Level) -> gtk::Image {
+    let (name, class) = match level {
+        Level::Ok => ("emblem-ok-symbolic", "success"),
+        Level::Warn => ("dialog-warning-symbolic", "warning"),
+        Level::Fail => ("dialog-error-symbolic", "error"),
+    };
+    gtk::Image::builder()
+        .icon_name(name)
+        .css_classes([class])
+        .valign(gtk::Align::Center)
+        .build()
 }
 
 fn apply_network_timezone(

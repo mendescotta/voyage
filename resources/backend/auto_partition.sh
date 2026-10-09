@@ -10,6 +10,9 @@ if [ -z "$DISK" ]; then
     exit 1
 fi
 
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/live_guard.sh"
+refuse_live_medium "$DISK" || exit 1
+
 EFI=0
 if [ -e /sys/firmware/efi/systab ]; then
     EFI=1

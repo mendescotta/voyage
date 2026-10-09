@@ -226,6 +226,15 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
     {
         let state = state.clone();
         let install_button = state.borrow().review.install_button.clone();
+        // a failed required check (memory, disk, privileges) blocks the install; --demo never touches disks
+        if !demo {
+            if let Some(reason) =
+                crate::backend::requirements::blocking_summary(&state.borrow().sys_data.checks)
+            {
+                install_button.set_sensitive(false);
+                install_button.set_tooltip_text(Some(&reason));
+            }
+        }
         install_button.connect_clicked(move |_| start_install(&state));
     }
 
@@ -416,6 +425,18 @@ fn collect_all(
 }
 
 fn start_install(state: &Rc<RefCell<State>>) {
+    let blocked = {
+        let s = state.borrow();
+        if s.demo {
+            None
+        } else {
+            crate::backend::requirements::blocking_summary(&s.sys_data.checks)
+        }
+    };
+    if let Some(reason) = blocked {
+        show_errors(state, &[("requirements".to_string(), reason)]);
+        return;
+    }
     let data = match collect_all(state) {
         Ok(data) => data,
         Err(errors) => {
