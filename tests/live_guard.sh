@@ -7,10 +7,25 @@ GUARD="$HERE/resources/backend/live_guard.sh"
 
 LIVE_SRC=""
 LOOP_BACK=""
-losetup() { [ -n "$LOOP_BACK" ] && echo "$LOOP_BACK"; }
+losetup() {
+    if [ "${*: -1}" = /dev/loop1 ] && [ -n "${NESTED_BACK:-}" ]; then
+        echo "$NESTED_BACK"
+    else
+        [ -n "$LOOP_BACK" ] && echo "$LOOP_BACK"
+    fi
+}
 findmnt() { # findmnt -n -o SOURCE <mountpoint>   |   findmnt -T <file> -no SOURCE
-	case " $* " in *" -T "*) [ "$LOOP_BACK" = "/isos/live.iso" ] && echo /dev/sdb2; return 0 ;; esac
+	case " $* " in
+        *" -T "*)
+            if [[ " $* " == *" /nested/outer.iso "* ]]; then echo /dev/sdb2
+            elif [ "$LOOP_BACK" = /isos/live.iso ]; then echo "${BACK_SRC:-/dev/sdb2}"
+            fi
+            return 0 ;;
+    esac
 	local mp="${*: -1}"
+    if [ "$mp" = /run/live/medium ] && [ -n "${LIVE_ALT_SRC:-}" ]; then
+        echo "$LIVE_ALT_SRC"; return 0
+    fi
 	[ "$mp" = "/run/initramfs/live" ] && [ -n "$LIVE_SRC" ] && { echo "$LIVE_SRC"; return 0; }
 	return 1
 }
@@ -24,6 +39,8 @@ lsblk() { # lsblk -nrso NAME,TYPE <dev>: the device and its parents, one per lin
 		/dev/mapper/live) printf 'live crypt\nsdb1 part\nsdb disk\n' ;;
 		/dev/sdb)       printf 'sdb disk\n' ;;
 		/dev/sdb2)      printf 'sdb2 part\nsdb disk\n' ;;
+		/dev/sr0)       printf 'sr0 rom\n' ;;
+		/dev/loop1)     printf 'loop1 loop\n' ;;
 		/dev/loop0)     printf 'loop0 loop\n' ;;
 		*) return 1 ;;
 	esac
@@ -50,10 +67,34 @@ refuses "an ISO loop-mounted from a file: the disk that holds the file" /dev/sdb
 allows  "an ISO loop-mounted from a file: other disks"               /dev/sda
 LOOP_BACK=""
 
+LIVE_SRC=/dev/sr0
+refuses "an optical live ISO: the optical drive itself" /dev/sr0
+allows "an optical live ISO: the installation disk" /dev/sda
+[ "$(live_medium_disks)" = /dev/sr0 ] || { echo "FAIL optical live medium not resolved"; fails=$((fails + 1)); }
+LIVE_SRC='/dev/sda1[/LiveOS]'
+refuses "a bind-mounted live medium: its backing disk" /dev/sda
+allows "a bind-mounted live medium: other disks" /dev/sdb
+LIVE_SRC=/dev/loop0; LOOP_BACK=/isos/live.iso; BACK_SRC='/dev/sdb2[/isos]'
+refuses "a loop backing file on a bind mount" /dev/sdb
+BACK_SRC=/dev/loop1; NESTED_BACK=/nested/outer.iso
+refuses "nested loop-mounted ISOs: the physical backing disk" /dev/sdb
+allows "nested loop-mounted ISOs: other disks" /dev/sda
+unset NESTED_BACK
+refuses "cyclic loop backing devices fail closed" /dev/sda
+unset BACK_SRC
+LOOP_BACK=""
+
 LIVE_SRC=/dev/loop0
 msg="$(refuse_live_medium /dev/sda 2>&1 >/dev/null)"; rc=$?
-[ "$rc" -eq 0 ] && echo "ok   an unresolvable live mount does not block (nothing to compare with)" || { echo "FAIL unresolvable mount blocked"; fails=$((fails + 1)); }
-case "$msg" in *"cannot"*"/run/initramfs/live"*|*"/run/initramfs/live"*"cannot"*) echo "ok   but it warns that the guard is blind" ;; *) echo "FAIL no warning for an unresolvable live mount: '$msg'"; fails=$((fails + 1)) ;; esac
+[ "$rc" -ne 0 ] && echo "ok   an unresolvable live mount blocks installation" || { echo "FAIL unresolvable mount accepted"; fails=$((fails + 1)); }
+case "$msg" in *"cannot"*"/run/initramfs/live"*|*"/run/initramfs/live"*"cannot"*) echo "ok   the error identifies the unresolved live mount" ;; *) echo "FAIL no warning for an unresolvable live mount: '$msg'"; fails=$((fails + 1)) ;; esac
+
+LIVE_SRC=/dev/sda1; LIVE_ALT_SRC=/dev/sdb2
+refuses "a second live mount protects its disk too" /dev/sdb
+allows "multiple live mounts still permit a separate target" /dev/nvme0n1
+LIVE_ALT_SRC=/dev/loop0
+refuses "an unresolved second mount blocks despite a known first disk" /dev/nvme0n1
+unset LIVE_ALT_SRC
 
 # a device the guard cannot resolve is refused while a live medium is known (fail closed)
 LIVE_SRC=/dev/sda1
@@ -63,7 +104,7 @@ refuses "an unresolvable device while the live disk is known" /dev/does-not-exis
 LIVE_SRC=/dev/loop0
 LIVE_DISKS=""
 n=$( { refuse_live_medium /dev/sda; refuse_live_medium /dev/nvme0n1; refuse_live_medium /dev/sda1; } 2>&1 >/dev/null | grep -c "cannot be determined")
-if [ "$n" = "0" ]; then echo "ok   with a precomputed (empty) list the blind-guard warning is not repeated"; else echo "FAIL the warning was repeated $n times"; fails=$((fails + 1)); fi
+if [ "$n" = "0" ]; then echo "ok   with a precomputed (empty) list an explicitly empty cached list does not trigger another lookup"; else echo "FAIL the warning was repeated $n times"; fails=$((fails + 1)); fi
 unset LIVE_DISKS
 LIVE_SRC=/dev/sda1; LIVE_DISKS="/dev/nvme0n1"
 refuses "a precomputed list is what is compared against" /dev/nvme0n1

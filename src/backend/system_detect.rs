@@ -241,7 +241,29 @@ pub fn detect_disks() -> Vec<Disk> {
     let Ok(output) = output else {
         return Vec::new();
     };
-    parse_disks(&String::from_utf8_lossy(&output.stdout))
+    let mut disks = parse_disks(&String::from_utf8_lossy(&output.stdout));
+    // Use the backend resolver too: lsblk's tree does not connect a loop-mounted
+    // ISO to the filesystem holding its backing file. An unresolved live mount
+    // must not leave writable targets available in the UI.
+    let live = Command::new("bash")
+        .args(["-c", ". \"$1\" && live_medium_disks", "voyage-live-guard"])
+        .arg(super::paths::backend_dir().join("live_guard.sh"))
+        .output();
+    let Ok(live) = live else {
+        return Vec::new();
+    };
+    if !live.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&live.stderr));
+        return Vec::new();
+    }
+    mark_live_devices(&mut disks, &String::from_utf8_lossy(&live.stdout));
+    disks
+}
+
+fn mark_live_devices(disks: &mut [Disk], live: &str) {
+    for disk in disks {
+        disk.live_medium |= live.lines().any(|device| device == disk.name);
+    }
 }
 
 pub fn parse_disks(text: &str) -> Vec<Disk> {
@@ -715,5 +737,24 @@ mod tests {
         assert!(!is_virtualbox("VMware Virtual Platform", "VMware, Inc."));
         assert!(!is_virtualbox("ThinkPad X1", "LENOVO"));
         assert!(!is_virtualbox("", ""));
+    }
+}
+
+#[cfg(test)]
+mod live_backing_tests {
+    use super::*;
+
+    #[test]
+    fn loop_backing_disks_are_hidden_alongside_direct_live_mounts() {
+        let json = r#"{"blockdevices":[
+          {"name":"sda","type":"disk","children":[
+            {"name":"sda1","type":"part","mountpoints":["/run/initramfs/live"]}]},
+          {"name":"sdb","type":"disk"},
+          {"name":"sdc","type":"disk"}]}"#;
+        let mut disks = parse_disks(json);
+        mark_live_devices(&mut disks, "/dev/sdb\n/dev/sr0\n");
+        let targets = install_targets(disks);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].name, "/dev/sdc");
     }
 }

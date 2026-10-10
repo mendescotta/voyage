@@ -28,7 +28,7 @@ DISTRO_CONF_DEFAULT="$BACKEND_DIR/distro.conf"
 # disk this live system booted from. Runs before anything is formatted or mounted.
 check_not_live_medium() {
     local dev bl
-    LIVE_DISKS="$(live_medium_disks)"
+    LIVE_DISKS="$(live_medium_disks)" || die "cannot identify the live installation medium"
     while read -r dev; do
         [ -n "$dev" ] || continue
         refuse_live_medium "$dev" || die "$dev is on the live installation medium"
