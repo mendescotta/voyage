@@ -493,7 +493,6 @@ fn collect_all(
         driver_set: mirrors_fields.driver_set,
         user_shell: users_fields.user_shell,
         root_shell: users_fields.root_shell,
-        vbox_guest: mirrors_fields.vbox_guest,
     };
 
     build_config(

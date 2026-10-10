@@ -59,7 +59,6 @@ pub struct InstallFields {
     /// Login shell names from distro.conf; empty means the distro's default.
     pub user_shell: String,
     pub root_shell: String,
-    pub vbox_guest: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -82,7 +81,6 @@ pub struct InstallConfig {
     pub driver_set: DriverSet,
     pub user_shell: String,
     pub root_shell: String,
-    pub vbox_guest: bool,
     pub partitions: Vec<Partition>,
     pub bootloader_disk: String,
     pub bootloader_type: String,
@@ -421,7 +419,6 @@ pub fn build_config(
         driver_set: fields.driver_set,
         user_shell: fields.user_shell.clone(),
         root_shell: fields.root_shell.clone(),
-        vbox_guest: fields.vbox_guest,
         partitions,
         bootloader_disk: disk_dev,
         bootloader_type: disk.bootloader_type.clone(),
@@ -454,7 +451,6 @@ mod tests {
             driver_set: DriverSet::Generic,
             user_shell: "bash".to_string(),
             root_shell: "bash".to_string(),
-            vbox_guest: false,
         }
     }
 
@@ -719,11 +715,9 @@ mod tests {
         let mut fields = valid_fields();
         fields.user_shell = "zsh".to_string();
         fields.root_shell = "fish".to_string();
-        fields.vbox_guest = true;
         let config = built(&fields).unwrap();
         assert_eq!(config.user_shell, "zsh");
         assert_eq!(config.root_shell, "fish");
-        assert!(config.vbox_guest);
     }
 
     #[test]

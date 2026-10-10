@@ -20,8 +20,8 @@ TARGETDIR="$T/target"; CALLS=""; INSTALLED=" "; OPTS_UPDATE=1; OPTS_USERLOGIN=gu
 mkdir -p "$TARGETDIR/etc" "$TARGETDIR/usr/bin" "$TARGETDIR/bin"
 for s in usr/bin/fish bin/bash; do printf '#!/bin/sh\n' > "$TARGETDIR/$s"; chmod +x "$TARGETDIR/$s"; done
 log_ui() { LOGS="$LOGS|$*"; }; LOGS=""
-OPTS_ROOTSHELL=""; OPTS_USERSHELL=""; OPTS_VBOX=0
-get_option() { case "$1" in UPDATE) echo "$OPTS_UPDATE" ;; USERLOGIN) echo "$OPTS_USERLOGIN" ;; ROOTSHELL) echo "$OPTS_ROOTSHELL" ;; USERSHELL) echo "$OPTS_USERSHELL" ;; VBOXGUEST) echo "$OPTS_VBOX" ;; esac; }
+OPTS_ROOTSHELL=""; OPTS_USERSHELL=""; OPTS_HW=0
+get_option() { case "$1" in UPDATE) echo "$OPTS_UPDATE" ;; USERLOGIN) echo "$OPTS_USERLOGIN" ;; ROOTSHELL) echo "$OPTS_ROOTSHELL" ;; USERSHELL) echo "$OPTS_USERSHELL" ;; HWDRIVERS) echo "$OPTS_HW" ;; esac; }
 chroot() {
 	shift
 	case "$1" in
@@ -114,30 +114,20 @@ INIT_SYSTEM=runit; rm -rf "$TARGETDIR/etc"; mkdir -p "$TARGETDIR/etc/sv/sshd" "$
 apply_distro_services 2>/dev/null
 check "runit: a service is enabled"   "$(readlink "$TARGETDIR/etc/runit/runsvdir/default/sshd")" "/etc/sv/sshd"
 
-# ---- VirtualBox guest additions
+# ---- VirtualBox guest additions are part of optional hardware setup
 DISTRO_CONF_DEFAULT="$HERE/resources/backend/distro.conf"; INIT_SYSTEM=dinit
 rm -rf "$TARGETDIR/etc"; mkdir -p "$TARGETDIR/etc/dinit.d/boot.d"; touch "$TARGETDIR/etc/dinit.d/vboxservice"
-reset; OPTS_VBOX=0; install_vbox_guest
-check "not requested: nothing happens" "$CALLS" ""
-check "and no service is started" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
+hardware_needs_vbox() { [ "$OPTS_HW" = 1 ]; }
+reset; OPTS_HW=0; install_vbox_guest
+check "disabled hardware setup does not install guest additions" "$CALLS" ""
 
-reset; OPTS_VBOX=1; install_vbox_guest
-check "requested, online: the guest package is installed" "$CALLS" "|xbps-install -SyU virtualbox-ose-guest-dkms virtualbox-ose-guest|xbps-reconfigure -a"
-check "and vboxservice is enabled" "$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "/etc/dinit.d/vboxservice"
-
-rm -f "$TARGETDIR/etc/dinit.d/boot.d/vboxservice"
-reset; OPTS_VBOX=1; OPTS_UPDATE=0; install_vbox_guest
-check "requested, offline, not on the image: no install attempt" "$CALLS" ""
-check "and the user is told" "$(printf '%s' "$LOGS" | grep -c 'internet')" "1"
-check "and nothing is enabled" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
-
-reset; OPTS_VBOX=1; OPTS_UPDATE=0; INSTALLED=" virtualbox-ose-guest-dkms virtualbox-ose-guest "; install_vbox_guest
-check "offline but already on the image: no install, service enabled" "$CALLS|$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "|xbps-reconfigure -a|/etc/dinit.d/vboxservice"
+reset; OPTS_HW=1; install_vbox_guest
+check "detected VirtualBox installs guest packages before configuring them" "$CALLS" "|xbps-install -SyU virtualbox-ose-guest-dkms virtualbox-ose-guest|xbps-reconfigure -a"
+check "detected VirtualBox enables vboxservice" "$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "/etc/dinit.d/vboxservice"
 
 rm -f "$TARGETDIR/etc/dinit.d/boot.d/vboxservice"
-reset; OPTS_VBOX=1; OFFLINE=1; install_vbox_guest
-check "a failed install is reported and does not stop the installer" "$(printf '%s' "$LOGS" | grep -c 'Could not install')" "1"
-check "and nothing is enabled" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
+reset; OPTS_HW=1; OPTS_UPDATE=0; INSTALLED=" virtualbox-ose-guest-dkms virtualbox-ose-guest "; install_vbox_guest
+check "offline ISO packages are configured and vboxservice is enabled" "$CALLS|$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "|xbps-reconfigure -a|/etc/dinit.d/vboxservice"
 
 # ---- dkms repair: vboxvideo does not build on 6.18, the other two modules must still be installed
 mkdir -p "$TARGETDIR/usr/lib/modules/6.18.55_1" "$TARGETDIR/usr/src/virtualbox-ose-guest-7.2.20"
@@ -186,8 +176,8 @@ chroot() {
 install_vbox_guest
 check "first configuration sees patched sources" "$CONFIGURED_PATCHED" "1"
 check "unpack precedes configuration" "$CALLS" "|xbps-install -SyU virtualbox-ose-guest-dkms virtualbox-ose-guest|xbps-reconfigure -a"
-# Hardware installation on a detected VM also uses the prepared transaction,
-# including when system updates and the explicit guest checkbox are off.
+# Hardware installation on a detected VM prepares the guest modules even
+# when system updates are off.
 hardware_needs_vbox() { return 0; }
 fresh_conf; reset; OPTS_VBOX=0; OPTS_UPDATE=0; CONFIGURED_PATCHED=0
 install_vbox_guest
@@ -197,7 +187,7 @@ rm -rf "$TARGETDIR/usr/lib/modules" "$TARGETDIR/usr/src"
 
 # ---- contract: what the GUI writes into the conf file is what the backend reads
 WRITER="$HERE/src/backend/install_runner.rs"
-for key in USERSHELL ROOTSHELL VBOXGUEST; do
+for key in USERSHELL ROOTSHELL; do
 	w=$(grep -c "\"$key\"," "$WRITER" 2>/dev/null); r=$(grep -c "get_option $key" "$SCRIPT")
 	check "$key is written by the GUI and read by the backend" "$([ "$w" -ge 1 ] && [ "$r" -ge 1 ] && echo both || echo "writer=$w reader=$r")" "both"
 done

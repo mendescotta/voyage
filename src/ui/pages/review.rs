@@ -34,10 +34,6 @@ pub fn review_rows(config: &InstallConfig) -> Vec<(String, String)> {
         ("System updates".to_string(), yes_no(config.update)),
         ("Nonfree repository".to_string(), yes_no(config.nonfree)),
         (
-            "VirtualBox guest additions".to_string(),
-            yes_no(config.vbox_guest),
-        ),
-        (
             "Hardware drivers".to_string(),
             if config.hw_drivers {
                 "Detected for this machine".to_string()
@@ -80,11 +76,7 @@ pub fn edit_page(label: &str) -> Option<usize> {
         "Language" | "Timezone" | "Keyboard layout" => Some(WELCOME),
         "Computer name" | "User account" | "User shell" | "Root shell" | "User password"
         | "Root password" | "Auto login" => Some(USERS),
-        "Mirror"
-        | "System updates"
-        | "Nonfree repository"
-        | "VirtualBox guest additions"
-        | "Hardware drivers"
+        "Mirror" | "System updates" | "Nonfree repository" | "Hardware drivers"
         | "Initramfs drivers" => Some(MIRRORS),
         "Disk layout" | "Swap" | "Filesystem" | "Btrfs layout" | "Bootloader" => Some(DISKS),
         _ => None,
@@ -276,7 +268,6 @@ mod tests {
             driver_set: crate::backend::config_schema::DriverSet::Generic,
             user_shell: "zsh".to_string(),
             root_shell: "bash".to_string(),
-            vbox_guest: false,
             partitions: vec![
                 Partition {
                     dev: "/dev/sda1".to_string(),

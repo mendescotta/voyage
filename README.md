@@ -15,9 +15,8 @@ rootfs copy, bootloader, users) from a tabbed UI: Welcome, Mirror and Software, 
 - Login shell for the user and for root, chosen separately on the Users page: bash (the default), zsh or
   fish. Shells that are not on the live image are installed from the network; offline, or if that fails,
   the account gets the default shell, never a shell that is missing. `/bin/sh` stays dash.
-- "Install the VirtualBox guest additions" on the Mirror and Software page; on by default when the machine
-  is a VirtualBox guest. It installs `virtualbox-ose-guest` and starts `vboxservice` (voidhw does the same
-  on a detected guest when hardware drivers are on; doing both is harmless).
+- When hardware driver setup is enabled on a VirtualBox guest, Voyage installs the guest additions and
+  starts `vboxservice`. The Devoid live ISO includes them for offline installs and starts the service live.
   Guest DKMS sources are patched before package configuration so the kernel's in-tree graphics
   driver is used and the incompatible out-of-tree `vboxvideo` build is skipped.
 - Distro policy is data, not code: `resources/backend/distro.conf` sets the shells on offer and

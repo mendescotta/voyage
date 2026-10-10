@@ -645,26 +645,21 @@ hardware_needs_vbox() {
         grep -qiE 'innotek|virtualbox' /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name 2>/dev/null
 }
 
-# "Install the VirtualBox guest additions": the packages and services come from distro.conf. voidhw also
-# installs them on a detected VirtualBox guest when hardware drivers are on; doing both is harmless.
+# Install guest packages before configuration so the patched DKMS sources are
+# used. The ISO's local repository makes this work without network access.
 install_vbox_guest() {
     local pkg svc missing=""
-    if [ "$(get_option VBOXGUEST)" != "1" ]; then
-        # voidhw would install these same packages during hardware setup.
-        hardware_needs_vbox || return 0
-    fi
+    hardware_needs_vbox || return 0
     for pkg in $(distro_values vbox-guest-install); do
         chroot "$TARGETDIR" xbps-query "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
     done
     if [ -n "$missing" ]; then
-        # Hardware setup already fetches guest packages even without a system
-        # update. Prepare them here before voidhw can configure them unpatched.
-        if [ "$(get_option UPDATE)" != "1" ] && ! hardware_needs_vbox; then
-            log_ui "The VirtualBox guest additions need the internet; install$missing after the first boot."
+        if [ "$(get_option UPDATE)" != "1" ]; then
+            log_ui "VirtualBox guest packages are unavailable offline; connect to a network and retry after installation."
             return 0
         fi
         chroot "$TARGETDIR" xbps-install -SyU $missing || {
-            log_ui "Could not install$missing; the VirtualBox guest additions were skipped."
+            log_ui "Could not install the VirtualBox guest additions."
             return 0
         }
     fi

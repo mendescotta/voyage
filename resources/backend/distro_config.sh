@@ -6,7 +6,7 @@
 # distro.conf: one `key value...` per line, `#` starts a comment. Unknown keys are an error.
 #   shell <name> <absolute path> [package]         a login shell the installer may offer (package installed if missing)
 #   default-shell <name>                           the shell both accounts get unless the user picks another
-#   vbox-guest-install <package>...                installed when the user asks for the VirtualBox guest additions
+#   vbox-guest-install <package>...                installed when hardware setup detects a VirtualBox guest
 #   vbox-guest-enable <service>...                 services switched on with them
 #   install <package>...                           extra packages for the new system (online installs only)
 #   remove <package>...                            packages removed from the new system (the installer itself)

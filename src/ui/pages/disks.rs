@@ -17,7 +17,7 @@ pub const TITLE: &str = "Disks";
 const FILESYSTEMS: &[&str] = &["ext4", "btrfs", "ext3", "ext2", "xfs"];
 const BIOS_BOOTLOADERS: &[(&str, &str)] = &[("GRUB", "grub")];
 const EFI_BOOTLOADERS: &[(&str, &str)] =
-    &[("GRUB", "grub"), ("Limine", "limine"), ("rEFInd", "refind")];
+    &[("rEFInd", "refind"), ("GRUB", "grub"), ("Limine", "limine")];
 
 struct State {
     disks: Vec<Disk>,

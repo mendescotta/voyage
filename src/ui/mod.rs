@@ -21,8 +21,6 @@ pub struct SysData {
     pub efi: bool,
     pub net: bool,
     pub display_manager: Option<String>,
-    /// Running in a VirtualBox guest: the guest-additions switch starts on.
-    pub virtualbox: bool,
     /// The Welcome page's system check; a failed required one blocks the installation.
     pub checks: Vec<crate::backend::requirements::Check>,
 }
