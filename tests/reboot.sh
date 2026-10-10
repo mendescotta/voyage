@@ -8,7 +8,10 @@ with tempfile.TemporaryDirectory() as temp:
     root = pathlib.Path(temp)
     source = pathlib.Path(sys.argv[1]).read_text()
     comm = root / 'comm'
-    source = source.replace('/proc/1/comm', str(comm))
+    init_exe = root / 'init-exe'
+    (root / 'dinit').write_text('')
+    init_exe.symlink_to(root / 'dinit')
+    source = source.replace('/proc/1/comm', str(comm)).replace('/proc/1/exe', str(init_exe))
     for path in ['/usr/bin/dinit-shutdown', '/usr/bin/reboot', '/usr/sbin/reboot', '/sbin/reboot', '/bin/reboot']:
         source = source.replace(path, str(root / path.strip('/').replace('/', '-')))
     script = root / 'reboot.sh'; script.write_text(source)
@@ -20,6 +23,13 @@ with tempfile.TemporaryDirectory() as temp:
     result = subprocess.run(['bash', str(script)], capture_output=True, text=True)
     assert (result.returncode, result.stdout.strip()) == (17, '-r'), result
     print('ok   dinit restart explicitly requests reboot and propagates failure')
+    comm.write_text('init\n')
+    result = subprocess.run(['bash', str(script)], capture_output=True, text=True)
+    assert (result.returncode, result.stdout.strip()) == (17, '-r'), result
+    print('ok   dinit invoked as init is recognized by its executable')
+    init_exe.unlink()
+    (root / 'runit').write_text('')
+    init_exe.symlink_to(root / 'runit')
     comm.write_text('runit\n')
     result = subprocess.run(['bash', str(script)], capture_output=True, text=True)
     assert (result.returncode, result.stdout.strip()) == (18, 'reboot'), result
