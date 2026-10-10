@@ -605,7 +605,7 @@ install_distro_packages() {
 # shared folders and the clipboard need (the kernel ships its own vboxvideo). Only runs when a kernel has no installed module.
 # Drop when: virtualbox-ose-guest-dkms builds on the current kernel without this (fixed or vboxvideo dropped upstream).
 repair_vbox_dkms() {
-    local conf kdir kver n broken=""
+    local conf kdir kver ver n broken=""
     for kdir in "$TARGETDIR"/usr/lib/modules/*/; do
         [ -d "$kdir" ] || continue
         kver=$(basename "$kdir")
@@ -613,14 +613,22 @@ repair_vbox_dkms() {
             broken="$broken $kver"
     done
     [ -n "$broken" ] || return 0
+    ver=""
     for conf in "$TARGETDIR"/usr/src/virtualbox-ose-guest-*/dkms.conf; do
         [ -f "$conf" ] || continue
         n=$(sed -n 's/^BUILT_MODULE_NAME\[\([0-9]*\)\]="vboxvideo".*/\1/p' "$conf")
         [ -n "$n" ] && sed -i "/^[A-Z_]*\[$n\]=/d" "$conf"
         # dkms builds through the top Makefile, which lists every module: dkms.conf alone is not enough.
         sed -i '/^obj-m/s|vboxvideo/||' "${conf%/dkms.conf}/Makefile" 2>/dev/null
+        ver=$(basename "${conf%/dkms.conf}")
+        ver=${ver#virtualbox-ose-guest-}
     done
     for kver in $broken; do
+        # dkms copies source to its build tree before patching the conf; clear the stale copy
+        # so autoinstall rebuilds from the patched /usr/src tree rather than reusing it.
+        [ -n "$ver" ] && rm -rf \
+            "$TARGETDIR/var/lib/dkms/virtualbox-ose-guest/$ver/$kver" \
+            "$TARGETDIR/var/lib/dkms/virtualbox-ose-guest/$ver/build" 2>/dev/null
         chroot "$TARGETDIR" dkms autoinstall -k "$kver" >/dev/null 2>&1 ||
             log_ui "The VirtualBox guest modules could not be built for kernel $kver."
     done
