@@ -8,6 +8,8 @@ rootfs copy, bootloader, users) from a tabbed UI: Welcome, Mirror and Software, 
 - The installation medium is never offered as a target: the Disks page hides it and the backend scripts
   refuse it too (`resources/backend/live_guard.sh`).
 - Real progress while the system is copied (a percentage from `tar` checkpoints), not a timer.
+- Success or failure appears above the installation output, which stays visible after completion.
+  Restart uses a privileged helper and recognizes dinit even when PID 1 is named `init`.
 - Every tab is available at any time. Review has an Edit button per choice; after editing, Next becomes
   "Back to review". Review and Install validate all pages again.
 - Login shell for the user and for root, chosen separately on the Users page: bash (the default), zsh or
@@ -16,6 +18,8 @@ rootfs copy, bootloader, users) from a tabbed UI: Welcome, Mirror and Software, 
 - "Install the VirtualBox guest additions" on the Mirror and Software page; on by default when the machine
   is a VirtualBox guest. It installs `virtualbox-ose-guest` and starts `vboxservice` (voidhw does the same
   on a detected guest when hardware drivers are on; doing both is harmless).
+  Guest DKMS sources are patched before package configuration so the kernel's in-tree graphics
+  driver is used and the incompatible out-of-tree `vboxvideo` build is skipped.
 - Distro policy is data, not code: `resources/backend/distro.conf` sets the shells on offer and
   the default, extra packages, packages to remove, services to enable or disable and what the VirtualBox
   option installs. An ISO replaces it by shipping
