@@ -67,6 +67,26 @@ impl InstallationPage {
         }
     }
 
+    pub fn set_result(&self, success: bool, message: &str) {
+        let view = super::completion::completion_view(success);
+        self.status_label.set_text(if success {
+            "Installation complete. Click Restart to start your installed system."
+        } else {
+            view.heading
+        });
+        self.status_label.remove_css_class("success");
+        self.status_label.remove_css_class("error");
+        self.status_label.add_css_class(view.css_class);
+        if success {
+            self.progress_bar.set_fraction(1.0);
+            self.progress_bar.set_text(Some("100%"));
+        } else if !message.is_empty() {
+            let buffer = self.log_view.buffer();
+            let mut end = buffer.end_iter();
+            buffer.insert(&mut end, &format!("\nInstallation failed: {message}\n"));
+        }
+    }
+
     pub fn start<F>(&self, config: InstallConfig, demo: bool, on_finished: F)
     where
         F: Fn(bool, String) + 'static,

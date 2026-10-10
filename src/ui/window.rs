@@ -5,7 +5,6 @@ use gtk::prelude::*;
 
 use crate::backend::config_schema::{build_config, InstallFields};
 use crate::ui::nav::*;
-use crate::ui::pages::completion::CompletionPage;
 use crate::ui::pages::disks::DisksPage;
 use crate::ui::pages::installation::InstallationPage;
 use crate::ui::pages::mirrors::MirrorsPage;
@@ -27,7 +26,6 @@ struct State {
     disks: DisksPage,
     review: ReviewPage,
     installation: InstallationPage,
-    completion: CompletionPage,
     stack: gtk::Stack,
     tabs: Vec<gtk::ToggleButton>,
     tab_bar: gtk::Box,
@@ -57,7 +55,6 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
     let disks = DisksPage::new(&sys_data);
     let review = ReviewPage::new();
     let installation = InstallationPage::new();
-    let completion = CompletionPage::new();
 
     let stack = gtk::Stack::new();
     stack.add_titled(
@@ -89,11 +86,6 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
         &installation.widget,
         Some(pages::installation::TITLE),
         pages::installation::TITLE,
-    );
-    stack.add_titled(
-        &completion.widget,
-        Some(pages::completion::TITLE),
-        pages::completion::TITLE,
     );
 
     let tab_titles = [
@@ -169,7 +161,6 @@ pub fn build(app: &widgets::App, sys_data: SysData, demo: bool) -> Window {
         disks,
         review,
         installation,
-        completion,
         stack,
         tabs,
         tab_bar,
@@ -351,7 +342,7 @@ fn update_nav(state: &Rc<RefCell<State>>) {
         DISKS => pages::disks::TITLE,
         REVIEW => pages::review::TITLE,
         INSTALLATION => pages::installation::TITLE,
-        _ => pages::completion::TITLE,
+        _ => pages::installation::TITLE,
     };
     s.stack.set_visible_child_name(visible_title);
 
@@ -403,7 +394,38 @@ fn on_next(state: &Rc<RefCell<State>>) {
                 app.quit();
             }
         } else {
-            let _ = std::process::Command::new("pkexec").arg("reboot").spawn();
+            let button = state.borrow().next_button.clone();
+            button.set_sensitive(false);
+            let (tx, rx) = async_channel::bounded(1);
+            std::thread::spawn(move || {
+                let script = crate::backend::paths::backend_dir().join("reboot.sh");
+                let result = std::process::Command::new("pkexec")
+                    .arg("/bin/bash")
+                    .arg(script)
+                    .output()
+                    .map_err(|e| e.to_string())
+                    .and_then(|output| {
+                        if output.status.success() {
+                            Ok(())
+                        } else {
+                            Err(format!(
+                                "{}\n{}",
+                                output.status,
+                                String::from_utf8_lossy(&output.stderr).trim()
+                            ))
+                        }
+                    });
+                let _ = tx.send_blocking(result);
+            });
+            let state = state.clone();
+            gtk::glib::spawn_future_local(async move {
+                if let Ok(result) = rx.recv().await {
+                    button.set_sensitive(true);
+                    if let Err(message) = result {
+                        widgets::alert(&state.borrow().window, "Could not restart", &message);
+                    }
+                }
+            });
         }
         return;
     }
@@ -516,7 +538,7 @@ fn start_install(state: &Rc<RefCell<State>>) {
         .start(data, demo, move |success, message| {
             {
                 let s = state_for_finish.borrow();
-                s.completion.set_result(success, &message);
+                s.installation.set_result(success, &message);
             }
             state_for_finish.borrow_mut().current_index = COMPLETION;
             update_nav(&state_for_finish);

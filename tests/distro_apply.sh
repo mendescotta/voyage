@@ -5,8 +5,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$HERE/resources/backend/backend_install.sh"
 
-eval "$(sed -n '/^enable_service()/,/^}/p;/^disable_service()/,/^}/p;/^enable_service_checked()/,/^}/p;/^apply_distro_services()/,/^}/p;/^install_distro_packages()/,/^}/p;/^apply_login_shell()/,/^}/p;/^set_login_shells()/,/^}/p;/^install_vbox_guest()/,/^}/p;/^repair_vbox_dkms()/,/^}/p' "$SCRIPT")"
-for f in enable_service disable_service enable_service_checked apply_distro_services install_distro_packages apply_login_shell set_login_shells install_vbox_guest repair_vbox_dkms; do
+eval "$(sed -n '/^enable_service()/,/^}/p;/^disable_service()/,/^}/p;/^enable_service_checked()/,/^}/p;/^apply_distro_services()/,/^}/p;/^install_distro_packages()/,/^}/p;/^apply_login_shell()/,/^}/p;/^set_login_shells()/,/^}/p;/^install_vbox_guest()/,/^}/p;/^repair_vbox_dkms()/,/^}/p;/^patch_vbox_dkms()/,/^}/p;/^hardware_needs_vbox()/,/^}/p' "$SCRIPT")"
+for f in enable_service disable_service enable_service_checked apply_distro_services install_distro_packages apply_login_shell set_login_shells install_vbox_guest repair_vbox_dkms patch_vbox_dkms; do
 	type "$f" >/dev/null 2>&1 || { echo "FAIL $f is not defined in the backend"; exit 1; }
 done
 
@@ -26,6 +26,7 @@ chroot() {
 	shift
 	case "$1" in
 		xbps-query) case "$INSTALLED" in *" $2 "*) return 0 ;; *) return 1 ;; esac ;;
+		xbps-reconfigure) CALLS="$CALLS|$*" ;;
 		xbps-install) CALLS="$CALLS|$*"; [ "${OFFLINE:-}" = 1 ] && return 1; return 0 ;;
 		usermod) CALLS="$CALLS|$*" ;;
 		dkms) case "$2" in status) printf '%s\n' "${DKMS_STATUS:-}" ;; *) CALLS="$CALLS|$*"; [ "${DKMS_FAIL:-}" = 1 ] && return 1 ;; esac ;;
@@ -82,6 +83,7 @@ chroot() {
 	shift
 	case "$1" in
 		xbps-query) case "$INSTALLED" in *" $2 "*) return 0 ;; *) return 1 ;; esac ;;
+		xbps-reconfigure) CALLS="$CALLS|$*" ;;
 		xbps-install) CALLS="$CALLS|$*"; [ "${OFFLINE:-}" = 1 ] && return 1; return 0 ;;
 		usermod) CALLS="$CALLS|$*" ;;
 		dkms) case "$2" in status) printf '%s\n' "${DKMS_STATUS:-}" ;; *) CALLS="$CALLS|$*"; [ "${DKMS_FAIL:-}" = 1 ] && return 1 ;; esac ;;
@@ -120,7 +122,7 @@ check "not requested: nothing happens" "$CALLS" ""
 check "and no service is started" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
 
 reset; OPTS_VBOX=1; install_vbox_guest
-check "requested, online: the guest package is installed" "$CALLS" "|xbps-install -Sy virtualbox-ose-guest-dkms virtualbox-ose-guest"
+check "requested, online: the guest package is installed" "$CALLS" "|xbps-install -SyU virtualbox-ose-guest-dkms virtualbox-ose-guest|xbps-reconfigure -a"
 check "and vboxservice is enabled" "$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "/etc/dinit.d/vboxservice"
 
 rm -f "$TARGETDIR/etc/dinit.d/boot.d/vboxservice"
@@ -130,7 +132,7 @@ check "and the user is told" "$(printf '%s' "$LOGS" | grep -c 'internet')" "1"
 check "and nothing is enabled" "$([ -L "$TARGETDIR/etc/dinit.d/boot.d/vboxservice" ] && echo on || echo off)" "off"
 
 reset; OPTS_VBOX=1; OPTS_UPDATE=0; INSTALLED=" virtualbox-ose-guest-dkms virtualbox-ose-guest "; install_vbox_guest
-check "offline but already on the image: no install, service enabled" "$CALLS|$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "|/etc/dinit.d/vboxservice"
+check "offline but already on the image: no install, service enabled" "$CALLS|$(readlink "$TARGETDIR/etc/dinit.d/boot.d/vboxservice")" "|xbps-reconfigure -a|/etc/dinit.d/vboxservice"
 
 rm -f "$TARGETDIR/etc/dinit.d/boot.d/vboxservice"
 reset; OPTS_VBOX=1; OFFLINE=1; install_vbox_guest
@@ -165,6 +167,32 @@ check "and the autoinstall line survives" "$(grep -c AUTOINSTALL "$CONF")" "1"
 
 fresh_conf; reset; DKMS_STATUS=""; DKMS_FAIL=1; repair_vbox_dkms; DKMS_FAIL=0
 check "a build that still fails is reported" "$(printf '%s' "$LOGS" | grep -c 'could not be built for kernel 6.18.55_1')" "1"
+# A fresh package must be patched before configuration invokes DKMS.
+fresh_conf; reset; OPTS_VBOX=1; DKMS_STATUS="virtualbox-ose-guest/7.2.20, 6.18.55_1, x86_64: installed"
+CONFIGURED_PATCHED=0
+chroot() {
+    shift
+    case "$1" in
+        xbps-query) return 1 ;;
+        xbps-install) CALLS="$CALLS|$*"; fresh_conf ;;
+        xbps-reconfigure)
+            CALLS="$CALLS|$*"
+            if ! grep -q vboxvideo "$CONF" && ! grep -q vboxvideo "${CONF%/dkms.conf}/Makefile"; then
+                CONFIGURED_PATCHED=1
+            fi ;;
+        dkms) printf '%s\n' "$DKMS_STATUS" ;;
+    esac
+}
+install_vbox_guest
+check "first configuration sees patched sources" "$CONFIGURED_PATCHED" "1"
+check "unpack precedes configuration" "$CALLS" "|xbps-install -SyU virtualbox-ose-guest-dkms virtualbox-ose-guest|xbps-reconfigure -a"
+# Hardware installation on a detected VM also uses the prepared transaction,
+# including when system updates and the explicit guest checkbox are off.
+hardware_needs_vbox() { return 0; }
+fresh_conf; reset; OPTS_VBOX=0; OPTS_UPDATE=0; CONFIGURED_PATCHED=0
+install_vbox_guest
+check "hardware guest package is patched even without system updates" "$CONFIGURED_PATCHED" "1"
+
 rm -rf "$TARGETDIR/usr/lib/modules" "$TARGETDIR/usr/src"
 
 # ---- contract: what the GUI writes into the conf file is what the backend reads

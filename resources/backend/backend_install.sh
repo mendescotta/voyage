@@ -326,6 +326,7 @@ copy_rootfs() {
 
     rm -f "$TARGETDIR/etc/motd" "$TARGETDIR/etc/issue" "$TARGETDIR/usr/sbin/void-installer"
     rm -f "$TARGETDIR/etc/skel/Desktop/voyage.desktop"
+    rm -f "$TARGETDIR/etc/xdg/autostart/void-live-resolution.desktop"         "$TARGETDIR/usr/local/bin/void-live-resolution"
     rm -f "$TARGETDIR/etc/polkit-1/rules.d/void-live.rules" \
         "$TARGETDIR/etc/sudoers.d/99-void-live"
     LIVE_USERNAME=""
@@ -600,12 +601,20 @@ install_distro_packages() {
     chroot "$TARGETDIR" xbps-install -Sy $pkgs || echo "Warning: could not install: $pkgs" >&2
 }
 
-# Void's guest dkms.conf also builds vboxvideo, which does not compile against Linux 6.18 (drm_fb_helper_alloc_info
-# is gone), so the whole dkms build fails and no module is installed. vboxguest and vboxsf are what guest control,
-# shared folders and the clipboard need (the kernel ships its own vboxvideo). Only runs when a kernel has no installed module.
-# Drop when: virtualbox-ose-guest-dkms builds on the current kernel without this (fixed or vboxvideo dropped upstream).
+# The kernel supplies vboxvideo. Remove the obsolete out-of-tree video module
+# before XBPS configures the unpacked guest package and runs its DKMS trigger.
+patch_vbox_dkms() {
+    local conf n
+    for conf in "$TARGETDIR"/usr/src/virtualbox-ose-guest-*/dkms.conf; do
+        [ -f "$conf" ] || continue
+        n=$(sed -n 's/^BUILT_MODULE_NAME\[\([0-9]*\)\]="vboxvideo".*/\1/p' "$conf")
+        [ -n "$n" ] && sed -i "/^[A-Z_]*\[$n\]=/d" "$conf"
+        sed -i '/^obj-m/s|vboxvideo/||' "${conf%/dkms.conf}/Makefile"
+    done
+}
+
 repair_vbox_dkms() {
-    local conf kdir kver ver n broken=""
+    local conf kdir kver ver broken=""
     for kdir in "$TARGETDIR"/usr/lib/modules/*/; do
         [ -d "$kdir" ] || continue
         kver=$(basename "$kdir")
@@ -613,13 +622,10 @@ repair_vbox_dkms() {
             broken="$broken $kver"
     done
     [ -n "$broken" ] || return 0
+    patch_vbox_dkms
     ver=""
     for conf in "$TARGETDIR"/usr/src/virtualbox-ose-guest-*/dkms.conf; do
         [ -f "$conf" ] || continue
-        n=$(sed -n 's/^BUILT_MODULE_NAME\[\([0-9]*\)\]="vboxvideo".*/\1/p' "$conf")
-        [ -n "$n" ] && sed -i "/^[A-Z_]*\[$n\]=/d" "$conf"
-        # dkms builds through the top Makefile, which lists every module: dkms.conf alone is not enough.
-        sed -i '/^obj-m/s|vboxvideo/||' "${conf%/dkms.conf}/Makefile" 2>/dev/null
         ver=$(basename "${conf%/dkms.conf}")
         ver=${ver#virtualbox-ose-guest-}
     done
@@ -634,24 +640,39 @@ repair_vbox_dkms() {
     done
 }
 
+hardware_needs_vbox() {
+    [ "$(get_option HWDRIVERS)" = "1" ] &&
+        grep -qiE 'innotek|virtualbox' /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name 2>/dev/null
+}
+
 # "Install the VirtualBox guest additions": the packages and services come from distro.conf. voidhw also
 # installs them on a detected VirtualBox guest when hardware drivers are on; doing both is harmless.
 install_vbox_guest() {
     local pkg svc missing=""
-    [ "$(get_option VBOXGUEST)" = "1" ] || return 0
+    if [ "$(get_option VBOXGUEST)" != "1" ]; then
+        # voidhw would install these same packages during hardware setup.
+        hardware_needs_vbox || return 0
+    fi
     for pkg in $(distro_values vbox-guest-install); do
         chroot "$TARGETDIR" xbps-query "$pkg" >/dev/null 2>&1 || missing="$missing $pkg"
     done
     if [ -n "$missing" ]; then
-        if [ "$(get_option UPDATE)" != "1" ]; then
+        # Hardware setup already fetches guest packages even without a system
+        # update. Prepare them here before voidhw can configure them unpatched.
+        if [ "$(get_option UPDATE)" != "1" ] && ! hardware_needs_vbox; then
             log_ui "The VirtualBox guest additions need the internet; install$missing after the first boot."
             return 0
         fi
-        chroot "$TARGETDIR" xbps-install -Sy $missing || {
+        chroot "$TARGETDIR" xbps-install -SyU $missing || {
             log_ui "Could not install$missing; the VirtualBox guest additions were skipped."
             return 0
         }
     fi
+    patch_vbox_dkms
+    chroot "$TARGETDIR" xbps-reconfigure -a || {
+        log_ui "Could not configure the VirtualBox guest additions."
+        return 0
+    }
     repair_vbox_dkms
     for svc in $(distro_values vbox-guest-enable); do
         enable_service_checked "$svc"
@@ -783,9 +804,11 @@ update_system() {
 
     echo "Installing downloaded updates..."
     log_ui "UPDATE_INSTALL"
-    if ! chroot "$TARGETDIR" xbps-install -uy; then
+    if ! chroot "$TARGETDIR" xbps-install -uyU; then
         die "Error installing system updates"
     fi
+    patch_vbox_dkms
+    chroot "$TARGETDIR" xbps-reconfigure -a || die "Error configuring system updates"
     echo "System updated"
 }
 
@@ -1033,9 +1056,9 @@ set_hostname
 set_mirror
 install_extra_software
 install_distro_packages
+install_vbox_guest
 install_hardware_drivers
 apply_distro_services
-install_vbox_guest
 run_hooks post-copy || die "a post-copy hook failed"
 
 echo "Rebuilding initramfs for the target system..."
