@@ -405,12 +405,11 @@ set_keymap() {
         printf '\nKEYMAP=%s\n' "$KEYMAP" >> "$TARGETDIR/etc/rc.conf"
     fi
 
-    if [ -f "$TARGETDIR/etc/vconsole.conf" ]; then
-        if grep -Eq '^[[:space:]]*KEYMAP[[:space:]]*=' "$TARGETDIR/etc/vconsole.conf"; then
-            sed -i -E "s|^[[:space:]]*KEYMAP[[:space:]]*=.*$|KEYMAP=$KEYMAP|" "$TARGETDIR/etc/vconsole.conf"
-        else
-            printf '\nKEYMAP=%s\n' "$KEYMAP" >> "$TARGETDIR/etc/vconsole.conf"
-        fi
+    touch "$TARGETDIR/etc/vconsole.conf"
+    if grep -Eq '^[[:space:]]*KEYMAP[[:space:]]*=' "$TARGETDIR/etc/vconsole.conf"; then
+        sed -i -E "s|^[[:space:]]*KEYMAP[[:space:]]*=.*$|KEYMAP=$KEYMAP|" "$TARGETDIR/etc/vconsole.conf"
+    else
+        printf '\nKEYMAP=%s\n' "$KEYMAP" >> "$TARGETDIR/etc/vconsole.conf"
     fi
 
     local XKB_LAYOUT="$KEYMAP"
@@ -836,8 +835,8 @@ install_hardware_drivers() {
 # default) or targeted (only the drivers this machine needs, like Debian's MODULES=dep).
 initramfs_dracut_args() {
     case "$(get_option DRIVERSET)" in
-        targeted) echo "--hostonly" ;;
-        *) echo "--no-hostonly --add-drivers ahci" ;;
+        targeted) echo "--hostonly --force-add i18n" ;;
+        *) echo "--no-hostonly --add-drivers ahci --force-add i18n" ;;
     esac
 }
 
@@ -964,7 +963,15 @@ install_refind() {
 
     rm -f "$esp_efi/refind/refind.conf" "$esp_efi/BOOT/refind.conf"
 
-    chroot "$TARGETDIR" refind-install --usedefault "$esp_dev" || die "Error installing rEFInd"
+    local refind_output refind_status
+    refind_output="$(chroot "$TARGETDIR" refind-install --usedefault "$esp_dev" 2>&1)"
+    refind_status=$?
+    if [ "$EFI_FW_BITS" = 32 ]; then
+        printf '%s\n' "$refind_output"
+    else
+        printf '%s\n' "$refind_output" | sed '/IA32 (x86) binary not installed/d'
+    fi
+    [ "$refind_status" -eq 0 ] || die "Error installing rEFInd"
 
     # --usedefault puts rEFInd (and its refind.conf) in EFI/BOOT, a plain install in EFI/refind:
     # the theme must go next to the refind.conf that rEFInd will actually read.
